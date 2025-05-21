@@ -1,7 +1,5 @@
 # PikPak Accuracy Control Charts Dashboard (Streamlit Version)
 
-# PikPak Accuracy Control Charts Dashboard (Streamlit Version)
-
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -34,6 +32,8 @@ def load_machine_products(file_path, machine):
 def load_machine_data(machine):
     try:
         df = pd.read_excel(file_path, sheet_name=machine, parse_dates=['Date'])
+        df['Total Picks'] = 1
+        df['Bad Picks'] = df['Status'].apply(lambda x: 1 if x == 'Bad' else 0)
         return df
     except Exception as e:
         st.error(f"Error loading data for {machine}: {e}")
@@ -54,7 +54,12 @@ def load_events():
         return pd.DataFrame(columns=['Date', 'Machine', 'Description', 'Recalculate Mean (Yes/No)'])
 
 def calculate_control_limits(segment_data, usl=None, lsl=None):
-    p_bar = segment_data['Bad Picks'].sum() / segment_data['Total Picks'].sum()
+    total_picks_sum = segment_data['Total Picks'].sum()
+    if total_picks_sum == 0:
+        # Handle case with no total picks to avoid division by zero
+        return 0, 0, 0, None # Or return previous limits, or other default values
+        
+    p_bar = segment_data['Bad Picks'].sum() / total_picks_sum
     centerline = p_bar * 100
     mu = segment_data['Bad %'].mean()
     sigma = segment_data['Bad %'].std(ddof=1)
@@ -85,7 +90,7 @@ def plot_chart(data, events, machine, product, chart_type, usl, lsl, detect_rule
     summary_for_calc['Bad %'] = summary_for_calc['Bad Picks'] / summary_for_calc['Total Picks'] * 100
 
     centerline, ucl, lcl, cpk = calculate_control_limits(summary_for_calc, usl, lsl)
-    ax.plot(daily_summary['Date'], daily_summary['Bad %'], marker='o', linestyle='-', color='blue')
+    ax.plot(daily_summary['Date'], daily_summary['Bad %'], marker='o', linestyle='-', color='blue', label='Bad %')
     ax.plot(daily_summary['Date'], [ucl] * len(daily_summary), 'r--', label=f"UCL = {ucl:.2f}%")
     ax.plot(daily_summary['Date'], [lcl] * len(daily_summary), 'r--', label=f"LCL = {lcl:.2f}%")
     ax.plot(daily_summary['Date'], [centerline] * len(daily_summary), 'g--', label=f"Centerline = {centerline:.2f}%")
@@ -94,9 +99,40 @@ def plot_chart(data, events, machine, product, chart_type, usl, lsl, detect_rule
     ax.set_xlabel("Date")
     ax.set_ylabel("Bad %")
     ax.xaxis.set_major_locator(mdates.WeekdayLocator(byweekday=mdates.MONDAY))
-    ax.xaxis.set_major_formatter(mdates.DateFormatter('%d/%m/%y'))
+    ax.xaxis.set_major_formatter(mdates.DateFormatter('%d-%m-%Y'))
+    ax.tick_params(axis='x', rotation=45)
     ax.grid(True)
     ax.legend()
+
+    # Add events to the chart if show_events is True
+    if show_events and not events.empty:
+        machine_events = events[events['Machine'] == machine].copy()
+        # Ensure event dates are in the data's date range
+        min_date = daily_summary['Date'].min()
+        max_date = daily_summary['Date'].max()
+        machine_events = machine_events[(machine_events['Date'] >= min_date) & (machine_events['Date'] <= max_date)]
+
+        for index, event in machine_events.iterrows():
+            event_date = event['Date']
+            description = event['Description']
+
+            # Find the y-value for the event date on the 'Bad %' line
+            y_value = daily_summary[daily_summary['Date'] == event_date]['Bad %']
+
+            if not y_value.empty:
+                y_pos = y_value.iloc[0]
+
+                # Add annotation
+                ax.annotate(
+                    description,
+                    (event_date, y_pos),
+                    textcoords="offset points",
+                    xytext=(0, 100), # Set vertical offset to 100 points
+                    ha='center',
+                    fontsize=9,
+                    bbox=dict(boxstyle="round,pad=0.3", fc="yellow", alpha=0.9), # Increased alpha for more solid box
+                    arrowprops=dict(arrowstyle="->", connectionstyle="arc3,rad=0", color='red') # Arrow pointing down to the point, changed color to red
+                )
 
     return fig
 
@@ -114,10 +150,21 @@ with st.expander("ℹ️ Help: Detection Rules", expanded=False):
     Enable **Detection Rules** in the sidebar to highlight these conditions on the control chart.
     """)
 
-st.title("PikPak Accuracy Control Charts Dashboard")
+st.title("PikPak Accuracy Dashboard")
 
 with st.sidebar:
+    # Add custom CSS for green button
+    st.markdown("""
+        <style>
+        div[data-testid="stForm"] button[kind="primaryFormSubmit"] {
+            background-color: #28a745;
+            color: white;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+    
     with st.form(key="chart_form"):
+        submitted = st.form_submit_button("Show Chart", type='primary')
         machine = st.selectbox("Select Machine", sheets_to_plot)
         if machine:
             product_list = load_machine_products(file_path, machine)
@@ -127,17 +174,18 @@ with st.sidebar:
         product = st.selectbox("Select Product", product_list, index=product_list.index("All Products") if "All Products" in product_list else 0)
 
         from datetime import date
-        default_start = date.today() - timedelta(days=30)
-        default_end = date.today()
-        date_range = st.date_input("Date Range", value=(default_start, default_end), help="Leave blank to use all available dates.")
+        date_range = st.date_input(
+            "Date Range",
+            value=None,
+            format="DD-MM-YYYY",
+            help="Leave blank to use all available dates."
+        )
 
         usl = st.number_input("USL (% Bad)", value=2.0)
         lsl = st.number_input("LSL (% Bad)", value=0.0)
 
         detect_rules = st.checkbox("Enable Detection Rules")
         show_events = st.checkbox("Show Events")
-
-        submitted = st.form_submit_button("Update Chart")
 
 if submitted:
     df = load_machine_data(machine)
@@ -152,38 +200,16 @@ if submitted:
         st.warning("No data available for the selected filters.")
     else:
         events = load_events()
-        fig = plot_chart(df, events, machine, product, "Shewhart", usl, lsl, detect_rules, show_events, [])
-        st.pyplot(fig)
+        recalc_date = st.date_input("Add Recalculation Date(s)", [])
+        event_dates = recalc_date if isinstance(recalc_date, list) else [recalc_date]
+        fig = plot_chart(df, events, machine, product, "Shewhart", usl, lsl, detect_rules, show_events, event_dates)
+        st.session_state['chart'] = fig
 
-with st.container():
-    if submitted and machine:
-        df = load_machine_data(machine)
-        df['Date'] = df['Date'].dt.normalize()
-        df['Total Picks'] = 1
-        df['Bad Picks'] = df['Status'].apply(lambda x: 1 if x == 'Bad' else 0)
-        df = filter_data_by_product(df, product)
-
-        if isinstance(date_range, tuple) and len(date_range) == 2:
-            start_date = pd.to_datetime(date_range[0])
-            end_date = pd.to_datetime(date_range[1])
-            df = df[(df['Date'] >= start_date) & (df['Date'] <= end_date)]
-
-        if df.empty:
-            st.warning("No data available for selected filters.")
+        if fig:
+            st.pyplot(fig)
+            if st.button("Save Chart as PNG"):
+                filename = f"ControlChart_{machine}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+                fig.savefig(filename, dpi=300, bbox_inches='tight')
+                st.success(f"Chart saved as {filename}")
         else:
-            events = load_events()
-            recalc_date = st.date_input("Add Recalculation Date(s)", [])
-            event_dates = recalc_date if isinstance(recalc_date, list) else [recalc_date]
-            chart = plot_chart(df, events, machine, product, "Shewhart", usl, lsl, detect_rules, show_events, event_dates)
-            st.session_state['chart'] = chart
-
-            if chart:
-                st.pyplot(chart)
-            else:
-                st.warning("No chart was generated. Check input filters or data.")
-
-            if 'chart' in st.session_state and st.session_state['chart'] is not None:
-                if st.button("Save Chart as PNG"):
-                    filename = f"ControlChart_{machine}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
-                    st.session_state['chart'].savefig(filename, dpi=300, bbox_inches='tight')
-                    st.success(f"Chart saved as {filename}")
+            st.warning("No chart was generated. Check input filters or data.")
