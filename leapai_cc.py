@@ -1,5 +1,7 @@
 # PikPak Accuracy Control Charts Dashboard (Streamlit Version)
 
+# PikPak Accuracy Control Charts Dashboard (Streamlit Version)
+
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -122,12 +124,12 @@ with st.sidebar:
         else:
             product_list = ['All Products']
 
-        product = st.selectbox("Select Product", product_list)
+        product = st.selectbox("Select Product", product_list, index=product_list.index("All Products") if "All Products" in product_list else 0)
 
         from datetime import date
         default_start = date.today() - timedelta(days=30)
         default_end = date.today()
-        date_range = st.date_input("Date Range", value=(default_start, default_end))
+        date_range = st.date_input("Date Range", value=(default_start, default_end), help="Leave blank to use all available dates.")
 
         usl = st.number_input("USL (% Bad)", value=2.0)
         lsl = st.number_input("LSL (% Bad)", value=0.0)
@@ -140,12 +142,18 @@ with st.sidebar:
 if submitted:
     df = load_machine_data(machine)
     df = filter_data_by_product(df, product)
-    if df.empty:
-        st.warning("No data available for the selected product.")
-    else:
-        events = load_events()
-        fig = plot_chart(df, events, machine, product, "Shewhart", None, usl, lsl, detect_rules, show_events, [])
-        st.pyplot(fig)
+
+        if isinstance(date_range, tuple) and len(date_range) == 2 and date_range[0] != date_range[1]:
+        start_date = pd.to_datetime(date_range[0])
+        end_date = pd.to_datetime(date_range[1])
+        df = df[(df['Date'] >= start_date) & (df['Date'] <= end_date)]
+
+        if df.empty:
+            st.warning("No data available for the selected filters.")
+        else:
+            events = load_events()
+            fig = plot_chart(df, events, machine, product, "Shewhart", usl, lsl, detect_rules, show_events, [])
+            st.pyplot(fig)
 
 
 
