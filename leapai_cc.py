@@ -143,20 +143,17 @@ if submitted:
     df = load_machine_data(machine)
     df = filter_data_by_product(df, product)
 
-        if isinstance(date_range, tuple) and len(date_range) == 2 and date_range[0] != date_range[1]:
+    if isinstance(date_range, tuple) and len(date_range) == 2 and date_range[0] != date_range[1]:
         start_date = pd.to_datetime(date_range[0])
         end_date = pd.to_datetime(date_range[1])
         df = df[(df['Date'] >= start_date) & (df['Date'] <= end_date)]
 
-        if df.empty:
-            st.warning("No data available for the selected filters.")
-        else:
-            events = load_events()
-            fig = plot_chart(df, events, machine, product, "Shewhart", usl, lsl, detect_rules, show_events, [])
-            st.pyplot(fig)
-
-
-
+    if df.empty:
+        st.warning("No data available for the selected filters.")
+    else:
+        events = load_events()
+        fig = plot_chart(df, events, machine, product, "Shewhart", usl, lsl, detect_rules, show_events, [])
+        st.pyplot(fig)
 
 with st.container():
     if submitted and machine:
