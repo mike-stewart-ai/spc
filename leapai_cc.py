@@ -147,6 +147,9 @@ if submitted:
         fig = plot_chart(df, events, machine, product, "Shewhart", None, usl, lsl, detect_rules, show_events, [])
         st.pyplot(fig)
 
+
+
+
 with st.container():
     if submitted and machine:
         df = load_machine_data(machine)
