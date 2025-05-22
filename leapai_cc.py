@@ -11,6 +11,8 @@ from datetime import datetime, timedelta, date
 import os
 import base64
 
+print("Reached after imports")
+
 # --- SETTINGS ---
 file_path = "PikPak Pick Accuracy.xlsx"
 
