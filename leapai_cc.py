@@ -7,6 +7,7 @@ import matplotlib.dates as mdates
 import numpy as np
 from datetime import datetime, timedelta, date
 import os
+import base64
 
 # --- SETTINGS ---
 file_path = "PikPak Pick Accuracy.xlsx"
@@ -15,9 +16,29 @@ file_path = "PikPak Pick Accuracy.xlsx"
 st.write("Current working directory:", os.getcwd())
 st.write("Files in directory:", os.listdir())
 
-if not os.path.isfile(file_path):
-    st.error(f"File not found: {file_path}")
-    st.error(f"Current directory contents: {os.listdir()}")
+# Function to load Excel file with better error handling
+def load_excel_file(file_path):
+    try:
+        if not os.path.isfile(file_path):
+            st.error(f"File not found: {file_path}")
+            st.error(f"Current directory contents: {os.listdir()}")
+            return None
+        
+        # Try to read the file
+        df = pd.read_excel(file_path)
+        return True
+    except Exception as e:
+        st.error(f"Error reading Excel file: {str(e)}")
+        return False
+
+# Check if we can read the Excel file
+if not load_excel_file(file_path):
+    st.error("""
+    Unable to read the Excel file. Please ensure:
+    1. The file 'PikPak Pick Accuracy.xlsx' is in the repository
+    2. The file is properly committed and pushed to GitHub
+    3. The file is accessible in the Streamlit Cloud environment
+    """)
     st.stop()
 
 sheets_to_plot = ["EVG #006", "EVG #007", "LWS #010"]
