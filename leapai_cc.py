@@ -1,3 +1,5 @@
+print("Script execution started")
+
 # PikPak Accuracy Control Charts Dashboard (Streamlit Version)
 
 import streamlit as st
