@@ -11,8 +11,13 @@ import os
 # --- SETTINGS ---
 file_path = "PikPak Pick Accuracy.xlsx"
 
+# Add debug information
+st.write("Current working directory:", os.getcwd())
+st.write("Files in directory:", os.listdir())
+
 if not os.path.isfile(file_path):
-    st.error("No valid file path found. Please ensure 'PikPak Pick Accuracy.xlsx' exists in the app directory.")
+    st.error(f"File not found: {file_path}")
+    st.error(f"Current directory contents: {os.listdir()}")
     st.stop()
 
 sheets_to_plot = ["EVG #006", "EVG #007", "LWS #010"]
