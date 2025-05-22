@@ -2,7 +2,9 @@
 
 import streamlit as st
 import pandas as pd
+import matplotlib
 import matplotlib.pyplot as plt
+matplotlib.use('Agg') # Set a non-interactive backend
 import matplotlib.dates as mdates
 import numpy as np
 from datetime import datetime, timedelta, date
