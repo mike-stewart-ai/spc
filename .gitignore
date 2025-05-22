@@ -21,10 +21,6 @@ wheels/
 .installed.cfg
 *.egg
 
-# Excel files
-*.xlsx
-*.xls
-
 # Virtual Environment
 venv/
 ENV/
