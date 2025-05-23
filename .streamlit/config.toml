@@ -1,8 +1,6 @@
 [client]
 showSidebarNavigation = true
-
-[global]
-dataFrameSerialization = "legacy"
+toolbarMode = "developer" # "viewer" is another option. Default is "developer"
 
 [browser]
 gatherUsageStats = false
@@ -16,12 +14,6 @@ maxMessageSize = 200
 
 [logger]
 level = "info"
-messageformat = "%(asctime)s %(message)s"
-datetimeFormat = "%Y-%m-%d %H:%M:%S"
 
-[client]
-toolbarMode = "developer" # "viewer" is another option. Default is "developer"
-
-# Use this to set the Python version
 [runtime]
-python = "3.11" 
+python = "3.11"

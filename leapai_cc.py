@@ -12,14 +12,12 @@ import numpy as np
 from datetime import datetime, timedelta, date
 import os
 import base64
+import plotly.graph_objects as go
 
 print("Reached after imports")
 
 # --- SETTINGS ---
 file_path = "PikPak Pick Accuracy.xlsx"
-
-# Add debug information
-st.write("Current working directory:", os.getcwd())
 
 # Function to load Excel file with better error handling
 def load_excel_file(file_path):
@@ -29,7 +27,6 @@ def load_excel_file(file_path):
             return None
         
         # Try to read the file (just checking if it's readable)
-        # We don't need to load the whole file here, just verify access
         pd.read_excel(file_path, nrows=1) # Read just one row to check readability
         return True
     except Exception as e:
@@ -61,14 +58,28 @@ def load_machine_products(file_path, machine):
         return ['All Products']
 
 def load_machine_data(machine):
+    """Load data for a specific machine from the Excel file."""
     try:
-        df = pd.read_excel(file_path, sheet_name=machine, parse_dates=['Date'])
-        df['Total Picks'] = 1
-        df['Bad Picks'] = df['Status'].apply(lambda x: 1 if x == 'Bad' else 0)
+        # Load the Excel file
+        df = pd.read_excel("PikPak Pick Accuracy.xlsx", sheet_name=machine)
+        # Convert Date column to datetime
+        df['Date'] = pd.to_datetime(df['Date'])
         return df
     except Exception as e:
         st.error(f"Error loading data for {machine}: {e}")
-        return pd.DataFrame(columns=['Date', 'Product', 'Status'])
+        return pd.DataFrame()
+
+def load_shift_pattern():
+    """Load shift pattern data from the Excel file."""
+    try:
+        # Load the Shift Pattern sheet
+        df = pd.read_excel("PikPak Pick Accuracy.xlsx", sheet_name="Shift Pattern")
+        # Convert Date column to datetime
+        df['Date'] = pd.to_datetime(df['Date'])
+        return df
+    except Exception as e:
+        st.error(f"Error loading shift pattern data: {e}")
+        return pd.DataFrame()
 
 def filter_data_by_product(df, product):
     if product == 'All Products' or 'Product' not in df.columns:
@@ -79,7 +90,6 @@ def load_events():
     try:
         df = pd.read_excel(file_path, sheet_name='Events', parse_dates=['Date'])
         df['Date'] = pd.to_datetime(df['Date']).dt.normalize()
-        # st.write("Debug - All Events:", df)  # Debug line
         return df
     except Exception as e:
         st.warning(f"Error loading events: {e}")
@@ -88,8 +98,7 @@ def load_events():
 def calculate_control_limits(segment_data, usl=None, lsl=None):
     total_picks_sum = segment_data['Total Picks'].sum()
     if total_picks_sum == 0:
-        # Handle case with no total picks to avoid division by zero
-        return 0, 0, 0, None # Or return previous limits, or other default values
+        return 0, 0, 0, None
         
     p_bar = segment_data['Bad Picks'].sum() / total_picks_sum
     centerline = p_bar * 100
@@ -184,11 +193,132 @@ def detect_violations(segment_data, centerline, ucl, lcl):
 
     return violations
 
-def plot_chart(data, events, machine, product, chart_type, usl, lsl, detect_rules, show_events, user_recalc_dates, include_event_recalcs):
-    fig, ax = plt.subplots(figsize=(14, 7))
+def plot_chart(data, events, machine, product, chart_type, usl, lsl, detect_rules, show_events, user_recalc_dates, include_event_recalcs, show_shift_pattern):
+    """Plot the control chart with the given data and settings."""
+    if data.empty:
+        st.warning("No data available for the selected criteria.")
+        return
 
-    daily_summary = data.groupby('Date').agg({'Bad Picks': 'sum', 'Total Picks': 'sum'}).reset_index()
+    # Define minimum number of samples required for a valid data point
+    min_samples = 1  # Temporarily lowered for testing
+
+    # Create the figure
+    fig = go.Figure()
+
+    # Calculate daily summary (needed for both shift pattern and data points)
+    # Create a temporary column for counting
+    data['_count'] = 1
+    # Calculate daily summary with Bad % calculation
+    daily_summary = data.groupby('Date').agg({
+        'Status': lambda x: (x == 'Bad').sum(),
+        '_count': 'sum'
+    }).reset_index()
+    daily_summary.rename(columns={'Status': 'Bad Picks', '_count': 'Total Picks'}, inplace=True)
     daily_summary['Bad %'] = daily_summary['Bad Picks'] / daily_summary['Total Picks'] * 100
+    daily_summary = daily_summary[daily_summary['Total Picks'] >= min_samples]
+    daily_summary = daily_summary.sort_values('Date')
+    data = data.drop('_count', axis=1)
+
+    # Add shift pattern overlay if enabled and machine is LWS #010
+    if show_shift_pattern and machine == "LWS #010":
+        # Generate shift pattern based on an 8-day cycle starting Jan 1st, 2025 (4A, 4B)
+        start_of_2025 = datetime(2025, 1, 1)  # Wednesday, January 1st, 2025
+
+        # Get the date range from the daily_summary (calculated earlier)
+        min_data_date = daily_summary['Date'].min()
+        max_data_date = daily_summary['Date'].max()
+
+        # Create a dataframe for all dates in the data range
+        all_dates_in_range = pd.DataFrame({'Date': pd.date_range(start=min_data_date, end=max_data_date, freq='D')})
+
+        # Calculate shift for each date
+        shift_data = []
+        for index, row in all_dates_in_range.iterrows():
+            days_since_2025 = (row['Date'].date() - start_of_2025.date()).days
+            # 8-day cycle: 0,1,2,3 = A; 4,5,6,7 = B; 8,9,10,11 = A, etc.
+            # First 4 days (0-3) are Shift A, next 4 days (4-7) are Shift B
+            shift = 'A' if (days_since_2025 % 8) < 4 else 'B'
+            shift_data.append({'Date': row['Date'], 'Shift': shift})
+
+        shift_df_generated = pd.DataFrame(shift_data)
+
+        if not shift_df_generated.empty:
+            # Filter shift data to the exact dates present in the daily_summary
+            shift_df_filtered = shift_df_generated[(shift_df_generated['Date'] >= min_data_date) & (shift_df_generated['Date'] <= max_data_date)].copy()
+
+            if not shift_df_filtered.empty:
+                # Define colors for Shift A (blue) and Shift B (yellow) with transparency
+                shift_colors = {
+                    'A': 'rgba(0, 0, 255, 0.1)',  # Light blue tint
+                    'B': 'rgba(255, 255, 0, 0.1)' # Light yellow tint
+                }
+
+                # Group dates by shift to create contiguous blocks
+                segments = []
+                current_shift = None
+                segment_start_date = None
+
+                # Ensure shift_df_filtered is sorted by date
+                shift_df_filtered = shift_df_filtered.sort_values(by='Date').reset_index(drop=True)
+
+                for index, row in shift_df_filtered.iterrows():
+                    if current_shift is None:
+                        current_shift = row['Shift']
+                        segment_start_date = row['Date']
+                    elif row['Shift'] != current_shift:
+                        # Add the previous segment
+                        segments.append({'Shift': current_shift, 'start_date': segment_start_date, 'end_date': shift_df_filtered.iloc[index-1]['Date']})
+                        # Start the new segment
+                        current_shift = row['Shift']
+                        segment_start_date = row['Date']
+
+                # Add the last segment after the loop
+                if current_shift is not None and segment_start_date is not None:
+                    segments.append({'Shift': current_shift, 'start_date': segment_start_date, 'end_date': shift_df_filtered.iloc[-1]['Date']})
+
+                # Add background rectangles for each shift segment
+                for segment in segments:
+                    # Extend the end date by one day to cover the entire last day of the segment
+                    end_date_extended = segment['end_date'] + timedelta(days=1)
+                    fig.add_shape(
+                        type="rect",
+                        x0=segment['start_date'],
+                        y0=daily_summary['Bad %'].min() * 0.9,  # Slightly below min data value
+                        x1=end_date_extended,
+                        y1=daily_summary['Bad %'].max() * 1.1,  # Slightly above max data value
+                        fillcolor=shift_colors.get(segment['Shift'], 'rgba(128, 128, 128, 0.1)'),
+                        opacity=1.0,
+                        layer="below",  # Place below data points
+                        line_width=0
+                    )
+
+                # Add simplified legend entries for shifts
+                fig.add_trace(go.Scatter(
+                    x=[None],
+                    y=[None],
+                    mode='markers',
+                    marker=dict(size=10, color=shift_colors['A']),
+                    name='Shift A',
+                    showlegend=True
+                ))
+                fig.add_trace(go.Scatter(
+                    x=[None],
+                    y=[None],
+                    mode='markers',
+                    marker=dict(size=10, color=shift_colors['B']),
+                    name='Shift B',
+                    showlegend=True
+                ))
+
+    # Add data points
+    fig.add_trace(go.Scatter(
+        x=daily_summary['Date'],
+        y=daily_summary['Bad %'],
+        mode='lines+markers',
+        name='% Bad',
+        line=dict(color='blue', width=2),
+        marker=dict(size=8, color='blue')
+    ))
 
     # Combine user-selected recalculation dates with event-based recalculation dates conditionally
     event_recalc_dates = []
@@ -206,7 +336,7 @@ def plot_chart(data, events, machine, product, chart_type, usl, lsl, detect_rule
     if not daily_summary.empty:
         first_data_date = daily_summary['Date'].min()
         if not all_recalc_dates or all_recalc_dates[0] > first_data_date:
-             all_recalc_dates.insert(0, first_data_date)
+            all_recalc_dates.insert(0, first_data_date)
 
     # Ensure recalculation dates are within the data's date range
     if not daily_summary.empty:
@@ -214,115 +344,171 @@ def plot_chart(data, events, machine, product, chart_type, usl, lsl, detect_rule
         max_data_date = daily_summary['Date'].max()
         all_recalc_dates = [d for d in all_recalc_dates if d >= min_data_date and d <= max_data_date]
 
+    # Calculate segments and control limits
     segments = []
     for i in range(len(all_recalc_dates)):
         start_date = all_recalc_dates[i]
         if i + 1 < len(all_recalc_dates):
-            end_date = all_recalc_dates[i+1] - timedelta(days=1) # Segment ends the day before the next recalculation
+            end_date = all_recalc_dates[i+1] - timedelta(days=1)
         else:
-            end_date = daily_summary['Date'].max() # Last segment goes to the end of the data
-        
-        # Ensure end_date is not before start_date due to timedelta(days=1) on a recalculation date that is also the max data date
+            end_date = daily_summary['Date'].max()
+
         if end_date < start_date:
-             end_date = start_date
+            end_date = start_date
 
         segment_data = daily_summary[(daily_summary['Date'] >= start_date) & (daily_summary['Date'] <= end_date)]
         if not segment_data.empty:
+            centerline, ucl, lcl, cpk = calculate_control_limits(segment_data, usl, lsl)
             segments.append({
                 'start_date': start_date,
                 'end_date': end_date,
-                'data': segment_data
+                'data': segment_data,
+                'centerline': centerline,
+                'ucl': ucl,
+                'lcl': lcl,
+                'cpk': cpk
             })
 
-    all_centerlines, all_ucls, all_lcls = [], [], []
-
-    for segment in segments:
-        centerline, ucl, lcl, cpk = calculate_control_limits(segment['data'], usl, lsl)
-        segment['centerline'] = centerline
-        segment['ucl'] = ucl
-        segment['lcl'] = lcl
-        segment['cpk'] = cpk
-
-        # Detect violations if enabled
-        if detect_rules:
-            segment['violations'] = detect_violations(segment['data'], centerline, ucl, lcl)
-        else:
-            segment['violations'] = {}
-
-        # Extend control limits across the segment's date range
-        segment_dates = segment['data']['Date']
-        all_centerlines.extend([(d, centerline) for d in segment_dates])
-        all_ucls.extend([(d, ucl) for d in segment_dates])
-        all_lcls.extend([(d, lcl) for d in segment_dates])
-
-
-    # Plotting the data points
-    ax.plot(daily_summary['Date'], daily_summary['Bad %'], marker='o', linestyle='-', color='blue', label='Bad %')
-
-    # Highlight violation points with different colors and markers
+    # Add detection rules highlighting if enabled
     if detect_rules:
-        violation_colors = {
-            'outside_limits': 'red',
-            'zone_shift': 'orange',
-            'trend': 'purple',
-            'alternating': 'green'
+        # Check for violations in each segment
+        all_violations = {
+            'outside_limits': [],
+            'zone_shift': [],
+            'trend': [],
+            'alternating': []
         }
         
-        for rule, color in violation_colors.items():
-            violation_dates = []
-            for segment in segments:
-                if 'violations' in segment and rule in segment['violations']:
-                    violation_dates.extend(segment['violations'][rule])
+        for segment in segments:
+            violations = detect_violations(segment['data'], segment['centerline'], segment['ucl'], segment['lcl'])
+            # Combine violations from all segments
+            for violation_type, dates in violations.items():
+                all_violations[violation_type].extend(dates)
+        
+        # Add markers for all violations
+        for violation_type, dates in all_violations.items():
+            if dates:  # Only add if there are violations
+                violation_data = daily_summary[daily_summary['Date'].isin(dates)]
+                if not violation_data.empty:
+                    fig.add_trace(go.Scatter(
+                        x=violation_data['Date'],
+                        y=violation_data['Bad %'],
+                        mode='markers',
+                        marker=dict(
+                            size=8,
+                            symbol='circle',
+                            color='red'
+                        ),
+                        name=f'{violation_type.replace("_", " ").title()}',
+                        showlegend=True
+                    ))
 
-            if violation_dates:
-                violation_points = daily_summary[daily_summary['Date'].isin(violation_dates)]
-                if not violation_points.empty:
-                    rule_label = rule.replace('_', ' ').title()
-                    ax.plot(violation_points['Date'], violation_points['Bad %'], 
-                           marker='o', linestyle='', color=color, markersize=8, 
-                           label=f'{rule_label} Violation')
+    # Add control limits for each segment
+    for i, segment in enumerate(segments):
+        if i == 0:  # First segment
+            # Add centerline
+            fig.add_trace(go.Scatter(
+                x=[segment['start_date'], segment['end_date']],
+                y=[segment['centerline'], segment['centerline']],
+                mode='lines',
+                line=dict(color='green', dash='dash', width=2),
+                name=f"Centerline = {segment['centerline']:.2f}%",
+                showlegend=True
+            ))
 
-    # Plotting the segmented control limits
-    if all_ucls:
-        all_ucls.sort()
-        ucl_dates, ucl_values = zip(*all_ucls)
-        # Get the last calculated UCL value for the legend
-        last_ucl = segments[-1]['ucl'] if segments else 0
-        ax.plot(ucl_dates, ucl_values, 'r--', label=f"UCL = {last_ucl:.2f}%") # Include value in legend
+            # Add UCL
+            fig.add_trace(go.Scatter(
+                x=[segment['start_date'], segment['end_date']],
+                y=[segment['ucl'], segment['ucl']],
+                mode='lines',
+                line=dict(color='red', dash='dash', width=2),
+                name=f"UCL = {segment['ucl']:.2f}%",
+                showlegend=True
+            ))
 
-    if all_lcls:
-        all_lcls.sort()
-        lcl_dates, lcl_values = zip(*all_lcls)
-        # Get the last calculated LCL value for the legend
-        last_lcl = segments[-1]['lcl'] if segments else 0
-        ax.plot(lcl_dates, lcl_values, 'r--', label=f"LCL = {last_lcl:.2f}%") # Include value in legend
+            # Add LCL
+            fig.add_trace(go.Scatter(
+                x=[segment['start_date'], segment['end_date']],
+                y=[segment['lcl'], segment['lcl']],
+                mode='lines',
+                line=dict(color='red', dash='dash', width=2),
+                name=f"LCL = {segment['lcl']:.2f}%",
+                showlegend=True
+            ))
+        else:  # Subsequent segments
+            # Calculate adjusted dates for gaps
+            end_of_prev = segments[i-1]['end_date'] - timedelta(days=0.5)  # End previous segment 0.5 days earlier
+            start_of_next = segment['start_date'] + timedelta(days=0.5)    # Start next segment 0.5 days later
 
-    if all_centerlines:
-        all_centerlines.sort()
-        centerline_dates, centerline_values = zip(*all_centerlines)
-        # Get the last calculated Centerline value for the legend
-        last_centerline = segments[-1]['centerline'] if segments else 0
-        ax.plot(centerline_dates, centerline_values, 'g--', label=f"Centerline = {last_centerline:.2f}%") # Include value in legend
+            # Add centerline
+            fig.add_trace(go.Scatter(
+                x=[start_of_next, segment['end_date']],  # Start after the gap
+                y=[segment['centerline'], segment['centerline']],
+                mode='lines',
+                line=dict(color='green', dash='dash'),
+                showlegend=False
+            ))
 
-    # Add Cpk to the legend
+            # Add UCL
+            fig.add_trace(go.Scatter(
+                x=[start_of_next, segment['end_date']],  # Start after the gap
+                y=[segment['ucl'], segment['ucl']],
+                mode='lines',
+                line=dict(color='red', dash='dash'),
+                showlegend=False
+            ))
+
+            # Add LCL
+            fig.add_trace(go.Scatter(
+                x=[start_of_next, segment['end_date']],  # Start after the gap
+                y=[segment['lcl'], segment['lcl']],
+                mode='lines',
+                line=dict(color='red', dash='dash'),
+                showlegend=False
+            ))
+
+            # Add connecting lines between segments
+            # Centerline connection
+            fig.add_trace(go.Scatter(
+                x=[segments[i-1]['end_date'] - timedelta(days=0.5), segment['start_date'] + timedelta(days=0.5)], # Connect across the 0.5 day gaps
+                y=[segments[i-1]['centerline'], segment['centerline']],
+                mode='lines',
+                line=dict(color='green', dash='dash'),
+                showlegend=False
+            ))
+
+            # UCL connection
+            fig.add_trace(go.Scatter(
+                x=[segments[i-1]['end_date'] - timedelta(days=0.5), segment['start_date'] + timedelta(days=0.5)], # Connect across the 0.5 day gaps
+                y=[segments[i-1]['ucl'], segment['ucl']],
+                mode='lines',
+                line=dict(color='red', dash='dash'),
+                showlegend=False
+            ))
+
+            # LCL connection
+            fig.add_trace(go.Scatter(
+                x=[segments[i-1]['end_date'] - timedelta(days=0.5), segment['start_date'] + timedelta(days=0.5)], # Connect across the 0.5 day gaps
+                y=[segments[i-1]['lcl'], segment['lcl']],
+                mode='lines',
+                line=dict(color='red', dash='dash'),
+                showlegend=False
+            ))
+
+    # Add Cpk to the legend if available
     if segments and segments[-1]['cpk'] is not None:
-        last_cpk = segments[-1]['cpk']
-        # Use an invisible line to add Cpk to the legend
-        ax.plot([], [], ' ', label=f"Cpk = {last_cpk:.2f}")
+        fig.add_trace(go.Scatter(
+            x=[None],
+            y=[None],
+            mode='markers',
+            marker=dict(size=0),
+            name=f"Cpk = {segments[-1]['cpk']:.2f}",
+            showlegend=True
+        ))
 
-    ax.set_title(f"{machine} - {product} Control Chart")
-    ax.set_xlabel("Date")
-    ax.set_ylabel("Bad %")
-    ax.xaxis.set_major_locator(mdates.WeekdayLocator(byweekday=mdates.MONDAY))
-    ax.xaxis.set_major_formatter(mdates.DateFormatter('%d-%m-%Y'))
-    ax.tick_params(axis='x', rotation=45)
-    ax.grid(True)
-    ax.legend()
-
-    # Add events to the chart if show_events is True
+    # Add events if enabled
     if show_events and not events.empty:
         machine_events = events[events['Machine'] == machine].copy()
-        # Ensure event dates are in the data's date range that is currently displayed
         min_data_date = daily_summary['Date'].min()
         max_data_date = daily_summary['Date'].max()
         machine_events = machine_events[(machine_events['Date'] >= min_data_date) & (machine_events['Date'] <= max_data_date)].copy()
@@ -331,40 +517,144 @@ def plot_chart(data, events, machine, product, chart_type, usl, lsl, detect_rule
             event_date = event['Date']
             description = event['Description']
 
-            # Find the closest date in daily_summary to the event_date
-            # Ensure the closest date is within the currently displayed data range
+            # Find the closest date in daily_summary
             closest_date_index = daily_summary['Date'].sub(event_date).abs().idxmin()
             closest_date_data = daily_summary.loc[closest_date_index]
 
-            y_pos = closest_date_data['Bad %']
-            x_pos = closest_date_data['Date'] # Point annotation arrow to the closest data point
-
             # Add annotation
-            ax.annotate(
-                description,
-                (x_pos, y_pos), # Use closest data point for annotation position
-                textcoords="offset points",
-                xytext=(0, 100), # Set vertical offset to 100 points
-                ha='center',
-                fontsize=9,
-                bbox=dict(boxstyle="round,pad=0.3", fc="yellow", alpha=0.9), # Increased alpha for more solid box
-                arrowprops=dict(arrowstyle="->", connectionstyle="arc3,rad=0", color='red') # Arrow pointing down to the point, changed color to red
+            fig.add_annotation(
+                x=closest_date_data['Date'],
+                y=closest_date_data['Bad %'],
+                text=description,
+                showarrow=True,
+                arrowhead=2,
+                ax=0,  # Horizontal offset of arrow
+                ay=-120,  # Double the vertical offset
+                bgcolor="#ff0000",  # Strong red
+                bordercolor="black",
+                borderwidth=1,
+                borderpad=4,  # Back to 4 pixels padding
+                opacity=1.0,  # Full opacity
+                font=dict(
+                    color="black",
+                    size=12
+                )
             )
 
-    return fig
+    # Update layout
+    fig.update_layout(
+        title=dict(
+            text=f"{machine} - {product} Control Chart",
+            y=0.95,
+            x=0.5,
+            xanchor='center',
+            yanchor='top'
+        ),
+        xaxis_title="Date",
+        yaxis_title="Bad %",
+        showlegend=True,
+        height=600,
+        plot_bgcolor='white',
+        paper_bgcolor='white',
+        title_font_color='black',
+        xaxis=dict(
+            tickangle=45,
+            tickformat="%d-%m-%Y",
+            type='date',
+            # Force Monday-based ticks
+            tickmode='array',
+            # Generate ticks for every Monday in the date range
+            ticktext=[d.strftime("%d-%m-%Y") for d in pd.date_range(
+                start=daily_summary['Date'].min(),
+                end=daily_summary['Date'].max(),
+                freq='W-MON'
+            )],
+            tickvals=pd.date_range(
+                start=daily_summary['Date'].min(),
+                end=daily_summary['Date'].max(),
+                freq='W-MON'
+            ),
+            showgrid=True,
+            gridcolor='lightgray',
+            gridwidth=1,
+            title_font_color='black',
+            tickfont_color='black',
+            range=[daily_summary['Date'].min(), daily_summary['Date'].max()]  # Ensure full date range is shown
+        ),
+        yaxis=dict(
+            showgrid=True,
+            gridcolor='lightgray',
+            gridwidth=1,
+            title_font_color='black',
+            tickfont_color='black'
+        ),
+        legend=dict(
+            font_color='black'
+        )
+    )
+
+    # Add shift pattern overlay if enabled and machine is LWS #010
+    if show_shift_pattern and machine == "LWS #010":
+        # Force x-axis to show dates after adding shift pattern
+        fig.update_xaxes(
+            type='date',
+            # Force Monday-based ticks
+            tickmode='array',
+            # Generate ticks for every Monday in the date range
+            ticktext=[d.strftime("%d-%m-%Y") for d in pd.date_range(
+                start=daily_summary['Date'].min(),
+                end=daily_summary['Date'].max(),
+                freq='W-MON'
+            )],
+            tickvals=pd.date_range(
+                start=daily_summary['Date'].min(),
+                end=daily_summary['Date'].max(),
+                freq='W-MON'
+            ),
+            range=[daily_summary['Date'].min(), daily_summary['Date'].max()]
+        )
+
+    # Display the plot with explicit configuration
+    st.plotly_chart(
+        fig,
+        use_container_width=True,
+        config={'displayModeBar': True},
+        height=600
+    )
 
 # --- STREAMLIT APP ---
 
-with st.expander("ℹ️ Help: Detection Rules", expanded=False):
+with st.expander("ℹ️ Help: Statistical Process Charts", expanded=False):
     st.markdown("""
-    This dashboard applies four key statistical rules to help detect signals in your process:
+    Enable **Detection Rules** in the sidebar to highlight these key statistical signals in your process:
 
     - **Outside Limits**: One point beyond the upper or lower control limits.
     - **Zone Shift**: 8 or more consecutive points on one side of the centerline.
     - **Trend**: 6 or more points trending upward or downward.
     - **Alternating**: 14 or more points alternating up and down.
 
-    Enable **Detection Rules** in the sidebar to highlight these conditions on the control chart.
+    **Specification Limits:**
+    - USL (Upper Specification Limit): The maximum acceptable value for % Bad
+    - LSL (Lower Specification Limit): The minimum acceptable value for % Bad
+    - These limits define the acceptable range for your process
+    - They are used to calculate Cpk, which measures how well your process fits within these limits
+
+    **Cpk (Process Capability) Guide:**
+    - Cpk > 1.67: Excellent process
+    - 1.33 < Cpk ≤ 1.67: Good process
+    - 1.0 < Cpk ≤ 1.33: Marginal process
+    - Cpk ≤ 1.0: Process needs improvement
+
+    Higher Cpk values indicate better process performance and less risk of producing out-of-specification results.
+
+    **Events and Recalculation Points:**
+    - Events are significant occurrences that may affect process performance
+    - They are displayed as red annotations on the chart when "Show Events" is enabled
+    - Events can be marked for recalculation (Yes/No in Events sheet)
+    - When "Include Event Recalculations" is enabled, these events will trigger new control limit calculations
+    - You can also manually add recalculation points using the date picker
+    - Recalculation points help identify when process behavior changes significantly
+    - Each segment between recalculation points has its own control limits
     """)
 
 st.title("PikPak Accuracy Dashboard")
@@ -379,110 +669,156 @@ with st.sidebar:
         }
         </style>
     """, unsafe_allow_html=True)
-
+    
+    # Store the selected machine in session state
+    if 'selected_machine' not in st.session_state:
+        st.session_state.selected_machine = sheets_to_plot[0]
+    
     with st.form(key="chart_form"):
-        # We will load and filter data outside the form submission check now
-        # The submitted flag will be used to trigger chart display and session state update
-        submitted = st.form_submit_button("Show Chart", type='primary')
-
-        # Primary selection controls
-        machine = st.selectbox("Select Machine", sheets_to_plot)
+        # Primary selection controls (kept inside form)
+        machine = st.selectbox("Select Machine", sheets_to_plot, 
+                             index=sheets_to_plot.index(st.session_state.selected_machine),
+                             key="form_machine_select")
         if machine:
             product_list = load_machine_products(file_path, machine)
         else:
             product_list = ['All Products']
 
-        product = st.selectbox("Select Product", product_list, index=product_list.index("All Products") if "All Products" in product_list else 0)
+        product = st.selectbox("Select Product", product_list, index=product_list.index("All Products") if "All Products" in product_list else 0, key="form_product_select")
 
-        # Date range input
-        from datetime import date, timedelta
-        
-        # Get the earliest date from the data
-        df = load_machine_data(machine)
-        df = filter_data_by_product(df, product)
-        if not df.empty:
-            default_start = df['Date'].min().date()
-            default_end = df['Date'].max().date()
-        else:
-            # Fallback to last 3 months if no data
-            default_end = date.today()
-            default_start = default_end - timedelta(days=90)
+        # Submit button moved to top
+        submitted = st.form_submit_button("Show Chart", type='primary')
 
-        # Use radio buttons for date range selection
-        date_selection = st.radio(
-            "Date Selection",
-            ["Show All Data", "Custom Date Range"],
-            index=0,
-            help="Choose whether to show all data or select a specific date range"
-        )
-            
-        date_range = None
-        if date_selection == "Custom Date Range":
-            st.write("\n") # Add some space
-            date_range = st.date_input(
-                "Select your custom date range:",
-                value=(default_start, default_end),
-                format="DD-MM-YYYY",
-                help="Select a start and end date for your custom range"
-            )
+        # Checkboxes (kept inside form as they affect plot on submit)
+        detect_rules = st.checkbox("Enable Detection Rules", key="form_detect_rules")
+        show_events = st.checkbox("Show Events", key="form_show_events")
+        include_event_recalcs = st.checkbox("Include Event Recalculations", value=False, help="Include dates from the Events sheet marked for recalculation.", key="form_include_event_recalcs")
 
-        # Checkboxes
-        detect_rules = st.checkbox("Enable Detection Rules")
-        show_events = st.checkbox("Show Events")
-        include_event_recalcs = st.checkbox("Include Event Recalculations", value=False, help="Include dates from the Events sheet marked for recalculation.")
+        # Add the shift pattern checkbox here, inside the form, but conditionally displayed
+        show_shift_pattern_dynamic = False
+        if st.session_state.get('form_machine_select') == "LWS #010":
+             show_shift_pattern_dynamic = st.checkbox("Overlay Shift Pattern", help="Show shift pattern overlay for LWS 010", key="shift_pattern_checkbox")
 
-        # Recalculation date input
+        # Recalculation date input (kept inside form)
         recalc_date_input = st.date_input(
             "Select Recalculation Date",
             value=None,
             format="DD-MM-YYYY",
-            help="Select a date to add as a recalculation point for control limits."
+            help="Select a date to add as a recalculation point for control limits.",
+            key="form_recalc_date_input"
         )
 
+        # Add Recalculation Point button
+        add_date_button = st.form_submit_button("Add Recalculation Point")
+        
+        # Initialize recalc_dates in session state if not present
         if 'recalc_dates' not in st.session_state:
             st.session_state.recalc_dates = []
-
-        add_date_button = st.form_submit_button("Add Recalculation Point")
-
+        
+        # Store the new date in a temporary list that will be processed on form submission
+        if 'temp_recalc_dates' not in st.session_state:
+            st.session_state.temp_recalc_dates = []
+        
         if add_date_button and recalc_date_input:
-            if recalc_date_input not in st.session_state.recalc_dates:
-                st.session_state.recalc_dates.append(recalc_date_input)
-                st.session_state.recalc_dates.sort() # Keep dates sorted
+            if recalc_date_input not in st.session_state.temp_recalc_dates:
+                st.session_state.temp_recalc_dates.append(recalc_date_input)
+                st.session_state.temp_recalc_dates.sort()
 
-        # Control limits at the bottom
-        st.sidebar.markdown("---")  # Add a separator line
-        st.sidebar.markdown("### Specification Limits")
-        usl = st.number_input("USL (% Bad)", value=2.0)
-        lsl = st.number_input("LSL (% Bad)", value=0.0)
+        # Add specification limits at the bottom of the form
+        st.markdown("---")  # Add a separator line
+        st.markdown("### Specification Limits")
+        usl = st.number_input("USL (% Bad)", value=2.0, step=0.5, key="form_usl")
+        lsl = st.number_input("LSL (% Bad)", value=0.0, step=0.5, key="form_lsl")
+
+        # Update session state with selected machine when form is submitted
+        if submitted:
+            st.session_state.selected_machine = machine
+            st.session_state['submitted_machine'] = machine
+            st.session_state['submitted_product'] = product
+            st.session_state['submitted_detect_rules'] = detect_rules
+            st.session_state['submitted_show_events'] = show_events
+            st.session_state['submitted_include_event_recalcs'] = include_event_recalcs
+            st.session_state['submitted_usl'] = usl
+            st.session_state['submitted_lsl'] = lsl
+            st.session_state['submitted_show_shift_pattern'] = st.session_state.get('shift_pattern_checkbox', False)
+            # Update the actual recalculation dates when Show Chart is clicked
+            if 'temp_recalc_dates' in st.session_state:
+                st.session_state.recalc_dates = st.session_state.temp_recalc_dates.copy()
+                st.session_state.temp_recalc_dates = []  # Clear temporary list
 
     # Display selected recalculation dates and add a clear button (moved outside the form)
+    # This part should react dynamically, so keep outside the form
     if 'recalc_dates' in st.session_state and st.session_state.recalc_dates:
-        st.sidebar.write("Recalculation Points:", [d.strftime("%Y-%m-%d") for d in st.session_state.recalc_dates])
-        # Add a unique key to the clear button as it's outside the form now
-        if st.sidebar.button("Clear Recalculation Points", key="clear_recalc_dates"):
-            st.session_state.recalc_dates = []
-            st.rerun()
+        st.sidebar.write("Recalculation Points:")
+        # Create columns for each date and its remove button
+        for date in st.session_state.recalc_dates:
+            col1, col2 = st.sidebar.columns([3, 1])
+            with col1:
+                st.write(date.strftime("%Y-%m-%d"))
+            with col2:
+                if st.button("❌", key=f"remove_{date.strftime('%Y%m%d')}"):
+                    st.session_state.recalc_dates.remove(date)
+                    if 'temp_recalc_dates' in st.session_state:
+                        st.session_state.temp_recalc_dates = st.session_state.recalc_dates.copy()
+                    st.rerun()
 
-# --- Data Loading and Filtering (moved outside submitted check) ---
-df = load_machine_data(machine)
-df = filter_data_by_product(df, product)
+# --- Data Loading and Filtering ---
+# Use submitted values from session state for data loading and plotting
+submitted_machine = st.session_state.get('submitted_machine')
+submitted_product = st.session_state.get('submitted_product')
 
-# Apply the date range filter to the data
-if date_selection == "Custom Date Range" and date_range and len(date_range) == 2:
-    start_date = pd.to_datetime(date_range[0])
-    end_date = pd.to_datetime(date_range[1])
-    df = df[(df['Date'] >= start_date) & (df['Date'] <= end_date)].copy() # Use .copy() to avoid SettingWithCopyWarning
+df = pd.DataFrame() # Initialize empty DataFrame
+
+# Only load data if the form has been submitted at least once with valid machine/product
+if submitted_machine and submitted_product:
+    try:
+        df = load_machine_data(submitted_machine)
+        df = filter_data_by_product(df, submitted_product)
+
+    except Exception as e:
+        st.error(f"Error loading or filtering data after form submission: {e}")
+        df = pd.DataFrame() # Ensure df is empty on error
 
 # --- Chart Generation and Display ---
-# Generate the chart if data is available or if the form was submitted (to handle initial display)
+# Only generate and display chart if data is loaded and available (i.e., form submitted and data found)
 if not df.empty:
-    events = load_events()
-    fig = plot_chart(df, events, machine, product, "Shewhart", usl, lsl, detect_rules, show_events, st.session_state.recalc_dates, include_event_recalcs)
-    st.session_state['chart'] = fig # Always update session state with the latest chart
+    try:
+        events = load_events()
+        # Use submitted values from session state for plotting
+        submitted_detect_rules = st.session_state.get('submitted_detect_rules', False)
+        submitted_show_events = st.session_state.get('submitted_show_events', False)
+        submitted_include_event_recalcs = st.session_state.get('submitted_include_event_recalcs', False)
+        submitted_usl = st.session_state.get('submitted_usl', 2.0)
+        submitted_lsl = st.session_state.get('submitted_lsl', 0.0)
+        # Use the submitted shift pattern checkbox state
+        submitted_show_shift_pattern = st.session_state.get('submitted_show_shift_pattern', False)
 
-    # Display the chart if it exists in session state
-    if 'chart' in st.session_state and st.session_state['chart'] is not None:
-        st.pyplot(st.session_state['chart'])
+        # Recalculation dates are handled dynamically outside the form
+        user_recalc_dates = st.session_state.get('recalc_dates', [])
+
+        fig = plot_chart(
+            df,
+            events,
+            submitted_machine,
+            submitted_product,
+            "Shewhart",
+            submitted_usl,
+            submitted_lsl,
+            submitted_detect_rules,
+            submitted_show_events,
+            user_recalc_dates, # Use the dynamically updated recalc dates
+            submitted_include_event_recalcs,
+            submitted_show_shift_pattern # Pass the submitted shift pattern state
+        )
+
+    except Exception as e:
+         st.error(f"Error generating or displaying chart: {e}")
+         # Optionally display the raw dataframe for debugging
+         st.write("Debug - Raw dataframe:", df)
 
 else:
-    st.warning("No data available for the selected filters.")
+    # Show initial message or warning if no data is loaded yet
+    if submitted_machine is None:
+        st.info("Please select a Machine and Product and click 'Show Chart' to display the control chart.")
+    else:
+        st.warning("No data available for the selected filters.")
