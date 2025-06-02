@@ -657,7 +657,7 @@ with st.expander("ℹ️ Help: Statistical Process Charts", expanded=False):
     - Each segment between recalculation points has its own control limits
     """)
 
-st.title("PikPak Accuracy Dashboard")
+st.title("PikPak Inaccuracy Dashboard")
 
 with st.sidebar:
     # Add custom CSS for green button
