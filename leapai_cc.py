@@ -320,17 +320,15 @@ def plot_chart(data, events, machine, product, chart_type, usl, lsl, detect_rule
         marker=dict(size=8, color='blue')
     ))
 
-    # Combine user-selected recalculation dates with event-based recalculation dates conditionally
-    event_recalc_dates = []
+    # Always include user-selected recalculation dates
+    user_recalc_dates_dt = [pd.to_datetime(d) for d in user_recalc_dates if d is not None]
+
     if include_event_recalcs:
         event_recalc_dates_df = events[(events['Machine'] == machine) & (events['Recalculate Mean (Yes/No)'].str.upper() == 'YES')].copy()
         event_recalc_dates = event_recalc_dates_df['Date'].tolist()
-
-    # Ensure user_recalc_dates are datetime objects
-    user_recalc_dates_dt = [pd.to_datetime(d) for d in user_recalc_dates if d is not None]
-
-    # Use combined dates if include_event_recalcs is True, otherwise just user dates
-    all_recalc_dates = sorted(list(set(user_recalc_dates_dt + event_recalc_dates)))
+        all_recalc_dates = sorted(list(set(user_recalc_dates_dt + event_recalc_dates)))
+    else:
+        all_recalc_dates = sorted(user_recalc_dates_dt)
 
     # Add the start date of the data as the first recalculation point if it's not already there
     if not daily_summary.empty:
@@ -723,6 +721,7 @@ with st.sidebar:
             if recalc_date_input not in st.session_state.temp_recalc_dates:
                 st.session_state.temp_recalc_dates.append(recalc_date_input)
                 st.session_state.temp_recalc_dates.sort()
+            # Do NOT update st.session_state.recalc_dates here
 
         # Add specification limits at the bottom of the form
         st.markdown("---")  # Add a separator line
@@ -741,25 +740,34 @@ with st.sidebar:
             st.session_state['submitted_usl'] = usl
             st.session_state['submitted_lsl'] = lsl
             st.session_state['submitted_show_shift_pattern'] = st.session_state.get('shift_pattern_checkbox', False)
-            # Update the actual recalculation dates when Show Chart is clicked
+            # Only update recalc_dates when Show Chart is clicked
             if 'temp_recalc_dates' in st.session_state:
                 st.session_state.recalc_dates = st.session_state.temp_recalc_dates.copy()
-                st.session_state.temp_recalc_dates = []  # Clear temporary list
+                st.session_state.temp_recalc_dates = []  # Clear temporary list after applying
 
-    # Display selected recalculation dates and add a clear button (moved outside the form)
-    # This part should react dynamically, so keep outside the form
+    # Display both Pending and Active recalculation dates in the sidebar
+    # Pending: temp_recalc_dates (to be applied on next Show Chart)
+    # Active: recalc_dates (currently applied to the chart)
+    if 'temp_recalc_dates' in st.session_state and st.session_state.temp_recalc_dates:
+        st.sidebar.write("Pending Recalculation Points:")
+        for date in st.session_state.temp_recalc_dates:
+            col1, col2 = st.sidebar.columns([3, 1])
+            with col1:
+                st.write(date.strftime("%d-%m-%Y"))
+            with col2:
+                if st.button("❌", key=f"remove_pending_{date.strftime('%Y%m%d')}"):
+                    st.session_state.temp_recalc_dates.remove(date)
+                    # Do NOT call st.rerun() here; only update chart on 'Show Chart'
+
     if 'recalc_dates' in st.session_state and st.session_state.recalc_dates:
-        st.sidebar.write("Recalculation Points:")
-        # Create columns for each date and its remove button
+        st.sidebar.write("Active Recalculation Points:")
         for date in st.session_state.recalc_dates:
             col1, col2 = st.sidebar.columns([3, 1])
             with col1:
-                st.write(date.strftime("%Y-%m-%d"))
+                st.write(date.strftime("%d-%m-%Y"))
             with col2:
-                if st.button("❌", key=f"remove_{date.strftime('%Y%m%d')}"):
+                if st.button("❌", key=f"remove_active_{date.strftime('%Y%m%d')}"):
                     st.session_state.recalc_dates.remove(date)
-                    if 'temp_recalc_dates' in st.session_state:
-                        st.session_state.temp_recalc_dates = st.session_state.recalc_dates.copy()
                     st.rerun()
 
 # --- Data Loading and Filtering ---
