@@ -58,12 +58,14 @@ def load_machine_products(file_path, machine):
         return ['All Products']
 
 def load_machine_data(machine):
-    """Load data for a specific machine from the Excel file."""
+    """Load data for a specific machine from the Excel file or CSV."""
     try:
-        # Load the Excel file
-        df = pd.read_excel("PikPak Pick Accuracy.xlsx", sheet_name=machine)
-        # Convert Date column to datetime
-        df['Date'] = pd.to_datetime(df['Date'])
+        if machine == "LWS #010":
+            df = pd.read_csv("PikPak Pick Accuracy(LWS #010).csv")
+            df['Date'] = pd.to_datetime(df['Date'], format="%d/%m/%y")
+        else:
+            df = pd.read_excel("PikPak Pick Accuracy.xlsx", sheet_name=machine)
+            df['Date'] = pd.to_datetime(df['Date'])
         return df
     except Exception as e:
         st.error(f"Error loading data for {machine}: {e}")
@@ -655,7 +657,7 @@ with st.expander("ℹ️ Help: Statistical Process Charts", expanded=False):
     - Each segment between recalculation points has its own control limits
     """)
 
-st.title("PikPak Inaccuracy Dashboard")
+st.title("PikPak Statistical Process Control (SPC) Dashboard")
 
 with st.sidebar:
     # Add custom CSS for green button
