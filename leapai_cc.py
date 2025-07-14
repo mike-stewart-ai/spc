@@ -62,7 +62,7 @@ def load_machine_data(machine):
     try:
         if machine == "LWS #010":
             df = pd.read_csv("PikPak Pick Accuracy(LWS #010).csv")
-            df['Date'] = pd.to_datetime(df['Date'], format="%d/%m/%Y")
+            df['Date'] = pd.to_datetime(df['Date'], dayfirst=True, errors='coerce')
         else:
             df = pd.read_excel("PikPak Pick Accuracy.xlsx", sheet_name=machine)
             df['Date'] = pd.to_datetime(df['Date'])
