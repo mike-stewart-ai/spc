@@ -62,7 +62,7 @@ def load_machine_data(machine):
     try:
         if machine == "LWS #010":
             df = pd.read_csv("PikPak Pick Accuracy(LWS #010).csv")
-            df['Date'] = pd.to_datetime(df['Date'], format="%d/%m/%y")
+            df['Date'] = pd.to_datetime(df['Date'], format="%d/%m/%Y")
         else:
             df = pd.read_excel("PikPak Pick Accuracy.xlsx", sheet_name=machine)
             df['Date'] = pd.to_datetime(df['Date'])
@@ -621,6 +621,19 @@ def plot_chart(data, events, machine, product, chart_type, usl, lsl, detect_rule
         config={'displayModeBar': True},
         height=600
     )
+
+    # After displaying the chart, show event links if available and Show Events is enabled
+    if submitted_show_events and not events.empty and 'URL' in events.columns:
+        machine_events = events[events['Machine'] == machine].copy()
+        if not df.empty and 'Date' in df.columns:
+            min_data_date = df['Date'].min()
+            max_data_date = df['Date'].max()
+            machine_events = machine_events[(machine_events['Date'] >= min_data_date) & (machine_events['Date'] <= max_data_date)].copy()
+        machine_events = machine_events[machine_events['URL'].notnull() & (machine_events['URL'] != '')]
+        if not machine_events.empty:
+            st.markdown('### Event Links')
+            for _, row in machine_events.iterrows():
+                st.markdown(f"- {row['Date'].strftime('%d-%m-%Y')}: [{row['Description']}]({row['URL']})")
 
 # --- STREAMLIT APP ---
 
