@@ -63,6 +63,79 @@ def load_machine_products(file_path, machine):
         return ['All Products']
 
 @st.cache_data
+def calculate_data_statistics_cached(df):
+    """Calculate data statistics with caching for better performance."""
+    if df.empty:
+        return None
+    
+    # Calculate statistics
+    first_date = df['Date'].min()
+    last_date = df['Date'].max()
+    date_range_days = (last_date - first_date).days + 1
+    total_picks = len(df)
+    avg_picks_per_day = total_picks / date_range_days
+    
+    # Find the day with the most picks
+    daily_counts = df.groupby('Date').size()
+    largest_day = daily_counts.idxmax()
+    largest_day_picks = daily_counts.max()
+    
+    return {
+        'date_range_days': date_range_days,
+        'total_picks': total_picks,
+        'avg_picks_per_day': avg_picks_per_day,
+        'largest_day': largest_day,
+        'largest_day_picks': largest_day_picks
+    }
+
+def calculate_data_statistics(df):
+    """Calculate and display data statistics for CSV data."""
+    if df.empty:
+        return
+    
+    # Get cached statistics
+    stats = calculate_data_statistics_cached(df)
+    if stats is None:
+        return
+    
+    # Display statistics in a compact, elegant format
+    st.markdown("### 📊 Data Gathering Statistics")
+    
+    # Create a more visually appealing layout
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.metric(
+            label="📈 Monitoring Days",
+            value=f"{stats['date_range_days']:,}",
+            help="Number of days manually monitored"
+        )
+    
+    with col2:
+        st.metric(
+            label="🎯 Total Picks Recorded",
+            value=f"{stats['total_picks']:,}",
+            help="Total number of picks manually recorded"
+        )
+    
+    with col3:
+        st.metric(
+            label="📊 Avg/Day",
+            value=f"{stats['avg_picks_per_day']:.0f}",
+            help="Average picks recorded per day"
+        )
+    
+    with col4:
+        st.metric(
+            label="🔥 Busiest Day",
+            value=f"{stats['largest_day_picks']:,}",
+            help=f"Most picks recorded in a single day ({stats['largest_day'].strftime('%d/%m/%Y')})"
+        )
+        st.caption(f"on {stats['largest_day'].strftime('%d/%m/%Y')}")
+    
+    st.markdown("---")
+
+@st.cache_data
 def load_machine_data_cached(machine):
     """Load data for a specific machine from the Excel file or CSV with caching."""
     try:
@@ -111,11 +184,11 @@ def create_sample_lws_data():
     start_date = end_date - timedelta(days=30)
     dates = pd.date_range(start=start_date, end=end_date, freq='D')
     
-    # Create sample data
+    # Create sample data with more realistic volume (closer to real data)
     data = []
     for date in dates:
-        # Generate 50-100 picks per day
-        num_picks = np.random.randint(50, 100)
+        # Generate 2000-3000 picks per day (more realistic for industrial scale)
+        num_picks = np.random.randint(2000, 3000)
         for i in range(num_picks):
             # 95% good picks, 5% bad picks
             status = np.random.choice(['Good', 'Bad'], p=[0.95, 0.05])
@@ -857,6 +930,8 @@ def plot_chart(data, events, machine, product, chart_type, usl, lsl, detect_rule
 
 # --- STREAMLIT APP ---
 
+st.title("PikPak Statistical Process Control (SPC) Dashboard")
+
 with st.expander("ℹ️ Help: Statistical Process Charts", expanded=False):
     st.markdown("""
     ## **Statistical Process Control (SPC) Dashboard Guide**
@@ -906,7 +981,8 @@ with st.expander("ℹ️ Help: Statistical Process Charts", expanded=False):
     5. **Set appropriate USL/LSL** based on customer requirements
     """)
 
-st.title("PikPak Statistical Process Control (SPC) Dashboard")
+# Add separator line after the main title
+st.markdown("---")
 
 with st.sidebar:
     # Add custom CSS for green button
@@ -1037,6 +1113,7 @@ with st.sidebar:
 # Use submitted values from session state for data loading and plotting
 submitted_machine = st.session_state.get('submitted_machine')
 submitted_product = st.session_state.get('submitted_product')
+submitted_exclude_low_data_days = st.session_state.get('submitted_exclude_low_data_days', False)
 
 df = pd.DataFrame() # Initialize empty DataFrame
 
@@ -1045,6 +1122,10 @@ if submitted_machine and submitted_product:
     try:
         df = load_machine_data_cached(submitted_machine)
         df = filter_data_by_product(df, submitted_product)
+
+        # If CSV data is loaded, calculate and display statistics
+        if submitted_machine == "LWS #010":
+            calculate_data_statistics(df)
 
     except Exception as e:
         st.error(f"Error loading or filtering data after form submission: {e}")
