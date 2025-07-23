@@ -67,37 +67,23 @@ def load_machine_data_cached(machine):
     """Load data for a specific machine from the Excel file or CSV with caching."""
     try:
         if machine == "LWS #010":
-            st.write(f"Debug: Attempting to load CSV for {machine}")
-            
             # Check if file exists
             import os
             csv_file = "PikPak Pick Accuracy(LWS #010).csv"
             if not os.path.exists(csv_file):
-                st.error(f"CSV file not found: {csv_file}")
-                st.info("Note: CSV file may not be available in cloud environment. Please ensure the file is uploaded to the repository.")
-                
-                # Create sample data for demonstration
-                st.warning("Creating sample data for LWS #010 (CSV file not available)")
+                st.warning("CSV file not available in cloud environment. Using sample data for demonstration.")
                 sample_data = create_sample_lws_data()
                 return sample_data
-            
-            st.write(f"Debug: CSV file exists, size: {os.path.getsize(csv_file)} bytes")
             
             # Try reading with different parameters
             try:
                 df = pd.read_csv(csv_file, encoding='utf-8', low_memory=False)
-                st.write(f"Debug: CSV loaded with UTF-8 encoding. Columns: {list(df.columns)}")
             except Exception as e1:
-                st.write(f"Debug: UTF-8 failed, trying default encoding: {e1}")
                 try:
                     df = pd.read_csv(csv_file, low_memory=False)
-                    st.write(f"Debug: CSV loaded with default encoding. Columns: {list(df.columns)}")
                 except Exception as e2:
                     st.error(f"Failed to read CSV file: {e2}")
                     return pd.DataFrame()
-            
-            st.write(f"Debug: DataFrame shape: {df.shape}")
-            st.write(f"Debug: First few rows: {df.head()}")
             
             # Check if Date column exists
             if 'Date' not in df.columns:
@@ -106,7 +92,6 @@ def load_machine_data_cached(machine):
             
             # Optimize date parsing with explicit format (DD/MM/YY)
             df['Date'] = pd.to_datetime(df['Date'], format='%d/%m/%y', errors='coerce')
-            st.write(f"Debug: Date parsing completed. Sample dates: {df['Date'].head()}")
             
         else:
             df = pd.read_excel("PikPak Pick Accuracy.xlsx", sheet_name=machine)
@@ -114,9 +99,6 @@ def load_machine_data_cached(machine):
         return df
     except Exception as e:
         st.error(f"Error loading data for {machine}: {e}")
-        st.write(f"Debug: Full error details: {str(e)}")
-        import traceback
-        st.write(f"Debug: Traceback: {traceback.format_exc()}")
         return pd.DataFrame()
 
 def create_sample_lws_data():
