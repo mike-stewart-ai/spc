@@ -797,7 +797,7 @@ def plot_chart(data, events, machine, product, chart_type, usl, lsl, detect_rule
                 st.markdown("**💡 Tip:** Orange events in the chart above have clickable links in this table. Click on the blue text to access additional information.")
         else:
             st.info("No events found for the selected machine and date range.")
-    elif submitted_show_events:
+    elif show_events:
         st.info("No events data available. Please ensure the Events sheet exists in the Excel file.")
 
 # --- STREAMLIT APP ---
