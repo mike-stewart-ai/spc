@@ -67,16 +67,89 @@ def load_machine_data_cached(machine):
     """Load data for a specific machine from the Excel file or CSV with caching."""
     try:
         if machine == "LWS #010":
-            df = pd.read_csv("PikPak Pick Accuracy(LWS #010).csv")
+            st.write(f"Debug: Attempting to load CSV for {machine}")
+            
+            # Check if file exists
+            import os
+            csv_file = "PikPak Pick Accuracy(LWS #010).csv"
+            if not os.path.exists(csv_file):
+                st.error(f"CSV file not found: {csv_file}")
+                st.info("Note: CSV file may not be available in cloud environment. Please ensure the file is uploaded to the repository.")
+                
+                # Create sample data for demonstration
+                st.warning("Creating sample data for LWS #010 (CSV file not available)")
+                sample_data = create_sample_lws_data()
+                return sample_data
+            
+            st.write(f"Debug: CSV file exists, size: {os.path.getsize(csv_file)} bytes")
+            
+            # Try reading with different parameters
+            try:
+                df = pd.read_csv(csv_file, encoding='utf-8', low_memory=False)
+                st.write(f"Debug: CSV loaded with UTF-8 encoding. Columns: {list(df.columns)}")
+            except Exception as e1:
+                st.write(f"Debug: UTF-8 failed, trying default encoding: {e1}")
+                try:
+                    df = pd.read_csv(csv_file, low_memory=False)
+                    st.write(f"Debug: CSV loaded with default encoding. Columns: {list(df.columns)}")
+                except Exception as e2:
+                    st.error(f"Failed to read CSV file: {e2}")
+                    return pd.DataFrame()
+            
+            st.write(f"Debug: DataFrame shape: {df.shape}")
+            st.write(f"Debug: First few rows: {df.head()}")
+            
+            # Check if Date column exists
+            if 'Date' not in df.columns:
+                st.error(f"Date column not found in CSV for {machine}. Available columns: {list(df.columns)}")
+                return pd.DataFrame()
+            
             # Optimize date parsing with explicit format (DD/MM/YY)
             df['Date'] = pd.to_datetime(df['Date'], format='%d/%m/%y', errors='coerce')
+            st.write(f"Debug: Date parsing completed. Sample dates: {df['Date'].head()}")
+            
         else:
             df = pd.read_excel("PikPak Pick Accuracy.xlsx", sheet_name=machine)
             df['Date'] = pd.to_datetime(df['Date'])
         return df
     except Exception as e:
         st.error(f"Error loading data for {machine}: {e}")
+        st.write(f"Debug: Full error details: {str(e)}")
+        import traceback
+        st.write(f"Debug: Traceback: {traceback.format_exc()}")
         return pd.DataFrame()
+
+def create_sample_lws_data():
+    """Create sample data for LWS #010 when CSV is not available."""
+    import numpy as np
+    from datetime import datetime, timedelta
+    
+    # Create sample dates (last 30 days)
+    end_date = datetime.now()
+    start_date = end_date - timedelta(days=30)
+    dates = pd.date_range(start=start_date, end=end_date, freq='D')
+    
+    # Create sample data
+    data = []
+    for date in dates:
+        # Generate 50-100 picks per day
+        num_picks = np.random.randint(50, 100)
+        for i in range(num_picks):
+            # 95% good picks, 5% bad picks
+            status = np.random.choice(['Good', 'Bad'], p=[0.95, 0.05])
+            data.append({
+                'Date': date,
+                'Time': f"{np.random.randint(8, 18):02d}:{np.random.randint(0, 60):02d}:{np.random.randint(0, 60):02d}",
+                'Index': i,
+                'Status': status,
+                'Product': 'Sample Product',
+                'Operator': 'Sample Operator',
+                'Comments': ''
+            })
+    
+    df = pd.DataFrame(data)
+    df['Date'] = pd.to_datetime(df['Date'])
+    return df
 
 def load_shift_pattern():
     """Load shift pattern data from the Excel file."""
