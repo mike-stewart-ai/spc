@@ -68,8 +68,21 @@ def load_machine_data_cached(machine):
     try:
         if machine == "LWS #010":
             df = pd.read_csv("PikPak Pick Accuracy(LWS #010).csv")
+            # Debug: Print column names to see what's available
+            st.write(f"Debug: CSV columns for {machine}: {list(df.columns)}")
+            st.write(f"Debug: First few rows: {df.head()}")
+            
+            # Check if Date column exists
+            if 'Date' not in df.columns:
+                st.error(f"Date column not found in CSV for {machine}. Available columns: {list(df.columns)}")
+                return pd.DataFrame()
+            
             # Optimize date parsing with explicit format (DD/MM/YY)
             df['Date'] = pd.to_datetime(df['Date'], format='%d/%m/%y', errors='coerce')
+            
+            # Debug: Check if dates were parsed correctly
+            st.write(f"Debug: Date column after parsing: {df['Date'].head()}")
+            
         else:
             df = pd.read_excel("PikPak Pick Accuracy.xlsx", sheet_name=machine)
             df['Date'] = pd.to_datetime(df['Date'])
