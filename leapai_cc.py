@@ -710,7 +710,22 @@ def plot_chart(data, events, machine, product, chart_type, usl, lsl, detect_rule
 
     # Add events if enabled
     if show_events and not events.empty:
-        machine_events = events[events['Machine'] == machine].copy()
+        # More flexible machine matching (handle spaces, case differences)
+        machine_events = events.copy()
+        
+        # Try exact match first
+        exact_matches = machine_events[machine_events['Machine'] == machine]
+        
+        # If no exact matches, try case-insensitive and space-insensitive matching
+        if len(exact_matches) == 0:
+            # Remove spaces and convert to lowercase for comparison
+            machine_events['Machine_clean'] = machine_events['Machine'].str.replace(' ', '').str.lower()
+            machine_clean = machine.replace(' ', '').lower()
+            machine_events = machine_events[machine_events['Machine_clean'] == machine_clean]
+            machine_events = machine_events.drop('Machine_clean', axis=1)
+        else:
+            machine_events = exact_matches
+        
         min_data_date = daily_summary['Date'].min()
         max_data_date = daily_summary['Date'].max()
         machine_events = machine_events[(machine_events['Date'] >= min_data_date) & (machine_events['Date'] <= max_data_date)].copy()
@@ -840,7 +855,22 @@ def plot_chart(data, events, machine, product, chart_type, usl, lsl, detect_rule
 
     # After displaying the chart, show events table if enabled
     if show_events and not events.empty:
-        machine_events = events[events['Machine'] == machine].copy()
+        # Use the same flexible machine matching as in the chart annotations
+        machine_events = events.copy()
+        
+        # Try exact match first
+        exact_matches = machine_events[machine_events['Machine'] == machine]
+        
+        # If no exact matches, try case-insensitive and space-insensitive matching
+        if len(exact_matches) == 0:
+            # Remove spaces and convert to lowercase for comparison
+            machine_events['Machine_clean'] = machine_events['Machine'].str.replace(' ', '').str.lower()
+            machine_clean = machine.replace(' ', '').lower()
+            machine_events = machine_events[machine_events['Machine_clean'] == machine_clean]
+            machine_events = machine_events.drop('Machine_clean', axis=1)
+        else:
+            machine_events = exact_matches
+            
         if not df.empty and 'Date' in df.columns:
             min_data_date = df['Date'].min()
             max_data_date = df['Date'].max()

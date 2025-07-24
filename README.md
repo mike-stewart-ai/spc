@@ -41,4 +41,4 @@ The application will open in your default web browser at http://localhost:8501
 
 ## License
 
-[Your chosen license]
+[Your chosen license] 
