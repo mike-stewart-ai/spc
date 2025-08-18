@@ -166,6 +166,13 @@ def load_machine_data_cached(machine):
             # Optimize date parsing with explicit format (DD/MM/YY)
             df['Date'] = pd.to_datetime(df['Date'], format='%d/%m/%y', errors='coerce')
             
+            # If parsing failed, try alternative formats
+            if df['Date'].isna().any():
+                df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
+            
+            # Remove rows with invalid dates
+            df = df.dropna(subset=['Date'])
+            
         else:
             df = pd.read_excel("PikPak Pick Accuracy.xlsx", sheet_name=machine)
             df['Date'] = pd.to_datetime(df['Date'])
@@ -792,19 +799,10 @@ def plot_chart(data, events, machine, product, chart_type, usl, lsl, detect_rule
             tickangle=45,
             tickformat="%d-%m-%Y",
             type='date',
-            # Force Monday-based ticks
-            tickmode='array',
-            # Generate ticks for every Monday in the date range
-            ticktext=[d.strftime("%d-%m-%Y") for d in pd.date_range(
-                start=daily_summary['Date'].min(),
-                end=daily_summary['Date'].max(),
-                freq='W-MON'
-            )],
-            tickvals=pd.date_range(
-                start=daily_summary['Date'].min(),
-                end=daily_summary['Date'].max(),
-                freq='W-MON'
-            ),
+            # More flexible tick generation based on data range
+            tickmode='auto',
+            # Show ticks more frequently - every 3-7 days depending on data range
+            dtick='D3',  # Show every 3rd day
             showgrid=True,
             gridcolor='lightgray',
             gridwidth=1,
@@ -829,19 +827,10 @@ def plot_chart(data, events, machine, product, chart_type, usl, lsl, detect_rule
         # Force x-axis to show dates after adding shift pattern
         fig.update_xaxes(
             type='date',
-            # Force Monday-based ticks
-            tickmode='array',
-            # Generate ticks for every Monday in the date range
-            ticktext=[d.strftime("%d-%m-%Y") for d in pd.date_range(
-                start=daily_summary['Date'].min(),
-                end=daily_summary['Date'].max(),
-                freq='W-MON'
-            )],
-            tickvals=pd.date_range(
-                start=daily_summary['Date'].min(),
-                end=daily_summary['Date'].max(),
-                freq='W-MON'
-            ),
+            # More flexible tick generation based on data range
+            tickmode='auto',
+            # Show ticks more frequently - every 3-7 days depending on data range
+            dtick='D3',  # Show every 3rd day
             range=[daily_summary['Date'].min(), daily_summary['Date'].max()]
         )
 
