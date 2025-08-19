@@ -799,10 +799,19 @@ def plot_chart(data, events, machine, product, chart_type, usl, lsl, detect_rule
             tickangle=45,
             tickformat="%d-%m-%Y",
             type='date',
-            # More flexible tick generation based on data range
-            tickmode='auto',
-            # Show ticks more frequently - every 3-7 days depending on data range
-            dtick='D3',  # Show every 3rd day
+            # Force weekly tick generation
+            tickmode='array',
+            # Generate weekly ticks explicitly
+            ticktext=[d.strftime("%d-%m-%Y") for d in pd.date_range(
+                start=daily_summary['Date'].min(),
+                end=daily_summary['Date'].max(),
+                freq='W-MON'  # Weekly on Mondays
+            )],
+            tickvals=pd.date_range(
+                start=daily_summary['Date'].min(),
+                end=daily_summary['Date'].max(),
+                freq='W-MON'  # Weekly on Mondays
+            ),
             showgrid=True,
             gridcolor='lightgray',
             gridwidth=1,
@@ -827,10 +836,19 @@ def plot_chart(data, events, machine, product, chart_type, usl, lsl, detect_rule
         # Force x-axis to show dates after adding shift pattern
         fig.update_xaxes(
             type='date',
-            # More flexible tick generation based on data range
-            tickmode='auto',
-            # Show ticks more frequently - every 3-7 days depending on data range
-            dtick='D3',  # Show every 3rd day
+            # Force weekly tick generation
+            tickmode='array',
+            # Generate weekly ticks explicitly
+            ticktext=[d.strftime("%d-%m-%Y") for d in pd.date_range(
+                start=daily_summary['Date'].min(),
+                end=daily_summary['Date'].max(),
+                freq='W-MON'  # Weekly on Mondays
+            )],
+            tickvals=pd.date_range(
+                start=daily_summary['Date'].min(),
+                end=daily_summary['Date'].max(),
+                freq='W-MON'  # Weekly on Mondays
+            ),
             range=[daily_summary['Date'].min(), daily_summary['Date'].max()]
         )
 
