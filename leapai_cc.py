@@ -1116,41 +1116,63 @@ with st.sidebar:
             st.session_state['submitted_usl'] = usl
             st.session_state['submitted_lsl'] = lsl
             st.session_state['submitted_show_shift_pattern'] = st.session_state.get('shift_pattern_checkbox', False)
+            
+            # Transfer date range values from temporary to submitted state
+            st.session_state['submitted_enable_date_filter'] = st.session_state.get('temp_enable_date_filter', False)
+            st.session_state['submitted_start_date'] = st.session_state.get('temp_start_date')
+            st.session_state['submitted_end_date'] = st.session_state.get('temp_end_date')
+            
             # Only update recalc_dates when Show Chart is clicked
             if 'temp_recalc_dates' in st.session_state:
                 st.session_state.recalc_dates = st.session_state.temp_recalc_dates.copy()
                 st.session_state.temp_recalc_dates = []  # Clear temporary list after applying
 
-    # Display both Pending and Active recalculation dates in the sidebar
-    # Pending: temp_recalc_dates (to be applied on next Show Chart)
-    # Active: recalc_dates (currently applied to the chart)
-    if 'temp_recalc_dates' in st.session_state and st.session_state.temp_recalc_dates:
-        st.sidebar.write("Pending Recalculation Points:")
-        for date in st.session_state.temp_recalc_dates:
-            col1, col2 = st.sidebar.columns([3, 1])
-            with col1:
-                st.write(date.strftime("%d-%m-%Y"))
-            with col2:
-                if st.button("❌", key=f"remove_pending_{date.strftime('%Y%m%d')}"):
-                    st.session_state.temp_recalc_dates.remove(date)
-                    # Do NOT call st.rerun() here; only update chart on 'Show Chart'
+    # Date range selection (moved outside form for immediate response)
+    st.sidebar.markdown("### Date Range Filter")
+    enable_date_filter = st.sidebar.checkbox(
+        "Enable Date Range Filter", 
+        value=st.session_state.get('submitted_enable_date_filter', False),
+        help="Check this box to filter data by date range. Leave unchecked to show all data.",
+        key="enable_date_filter"
+    )
+    
+    if enable_date_filter:
+        col1, col2 = st.sidebar.columns(2)
+        with col1:
+            start_date = st.sidebar.date_input(
+                "Start Date",
+                value=st.session_state.get('submitted_start_date'),
+                format="DD/MM/YYYY",
+                help="Select the start date for data filtering. Leave empty to include all data from the beginning.",
+                key="start_date"
+            )
+        with col2:
+            end_date = st.sidebar.date_input(
+                "End Date", 
+                value=st.session_state.get('submitted_end_date'),
+                format="DD/MM/YYYY",
+                help="Select the end date for data filtering. Leave empty to include all data to the end.",
+                key="end_date"
+            )
+    else:
+        start_date = None
+        end_date = None
 
-    if 'recalc_dates' in st.session_state and st.session_state.recalc_dates:
-        st.sidebar.write("Active Recalculation Points:")
-        for date in st.session_state.recalc_dates:
-            col1, col2 = st.sidebar.columns([3, 1])
-            with col1:
-                st.write(date.strftime("%d-%m-%Y"))
-            with col2:
-                if st.button("❌", key=f"remove_active_{date.strftime('%Y%m%d')}"):
-                    st.session_state.recalc_dates.remove(date)
-                    st.rerun()
+    # Store date range values in session state (but don't apply until form submission)
+    st.session_state['temp_enable_date_filter'] = enable_date_filter
+    st.session_state['temp_start_date'] = start_date
+    st.session_state['temp_end_date'] = end_date
 
 # --- Data Loading and Filtering ---
 # Use submitted values from session state for data loading and plotting
 submitted_machine = st.session_state.get('submitted_machine')
 submitted_product = st.session_state.get('submitted_product')
 submitted_exclude_low_data_days = st.session_state.get('submitted_exclude_low_data_days', False)
+
+# Get date range values from session state (only applied on form submission)
+submitted_enable_date_filter = st.session_state.get('submitted_enable_date_filter', False)
+submitted_start_date = st.session_state.get('submitted_start_date')
+submitted_end_date = st.session_state.get('submitted_end_date')
 
 df = pd.DataFrame() # Initialize empty DataFrame
 
@@ -1160,6 +1182,19 @@ if submitted_machine and submitted_product:
         df = load_machine_data_cached(submitted_machine)
         df = filter_data_by_product(df, submitted_product)
 
+        # Apply date range filtering if enabled and dates are selected (only on form submission)
+        if submitted_enable_date_filter:
+            if submitted_start_date is not None:
+                df = df[df['Date'] >= pd.to_datetime(submitted_start_date)]
+            if submitted_end_date is not None:
+                df = df[df['Date'] <= pd.to_datetime(submitted_end_date)]
+
+            # Show date range info if dates are selected
+            if submitted_start_date is not None or submitted_end_date is not None:
+                start_str = submitted_start_date.strftime("%d-%m-%Y") if submitted_start_date else "Beginning"
+                end_str = submitted_end_date.strftime("%d-%m-%Y") if submitted_end_date else "End"
+                st.info(f"📅 **Date Range Applied:** {start_str} to {end_str}")
+
         # If CSV data is loaded, calculate and display statistics
         if submitted_machine == "LWS #010":
             calculate_data_statistics(df)
@@ -1167,6 +1202,28 @@ if submitted_machine and submitted_product:
     except Exception as e:
         st.error(f"Error loading or filtering data after form submission: {e}")
         df = pd.DataFrame() # Ensure df is empty on error
+
+# Display recalculation points in the sidebar
+if 'temp_recalc_dates' in st.session_state and st.session_state.temp_recalc_dates:
+    st.sidebar.write("Pending Recalculation Points:")
+    for date in st.session_state.temp_recalc_dates:
+        col1, col2 = st.sidebar.columns([3, 1])
+        with col1:
+            st.sidebar.write(date.strftime("%d-%m-%Y"))
+        with col2:
+            if st.sidebar.button("❌", key=f"remove_pending_{date.strftime('%Y%m%d')}"):
+                st.session_state.temp_recalc_dates.remove(date)
+
+if 'recalc_dates' in st.session_state and st.session_state.recalc_dates:
+    st.sidebar.write("Active Recalculation Points:")
+    for date in st.session_state.recalc_dates:
+        col1, col2 = st.sidebar.columns([3, 1])
+        with col1:
+            st.sidebar.write(date.strftime("%d-%m-%Y"))
+        with col2:
+            if st.sidebar.button("❌", key=f"remove_active_{date.strftime('%Y%m%d')}"):
+                st.session_state.recalc_dates.remove(date)
+                st.rerun()
 
 # --- Chart Generation and Display ---
 # Only generate and display chart if data is loaded and available (i.e., form submitted and data found)
