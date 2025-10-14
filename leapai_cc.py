@@ -39,7 +39,7 @@ if not load_excel_file(file_path):
     """)
     st.stop()
 
-sheets_to_plot = ["EVG #006", "EVG #007", "LWS #010"]
+sheets_to_plot = ["EVG #006", "EVG #007", "LWS #010", "Drysdale #008"]
 
 # --- FUNCTIONS ---
 def load_machine_products(file_path, machine):
