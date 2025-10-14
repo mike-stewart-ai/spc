@@ -1,12 +1,10 @@
-print("Script execution started")
-
 # PikPak Accuracy Control Charts Dashboard (Streamlit Version)
 
 import streamlit as st
 import pandas as pd
 import matplotlib
 import matplotlib.pyplot as plt
-matplotlib.use('Agg') # Set a non-interactive backend
+matplotlib.use('Agg')  # Set a non-interactive backend
 import matplotlib.dates as mdates
 import numpy as np
 from datetime import datetime, timedelta, date
@@ -14,14 +12,11 @@ import os
 import base64
 import plotly.graph_objects as go
 
-print("Reached after imports")
-
 # --- SETTINGS ---
 file_path = "PikPak Pick Accuracy.xlsx"
 
-# Add caching for better performance
-@st.cache_data
-def load_excel_file_cached(file_path):
+# Function to load Excel file with better error handling
+def load_excel_file(file_path):
     try:
         if not os.path.isfile(file_path):
             st.error(f"File not found: {file_path}")
@@ -33,10 +28,6 @@ def load_excel_file_cached(file_path):
     except Exception as e:
         st.error(f"Error reading Excel file: {str(e)}")
         return False
-
-# Function to load Excel file with better error handling
-def load_excel_file(file_path):
-    return load_excel_file_cached(file_path)
 
 # Check if we can read the Excel file
 if not load_excel_file(file_path):
@@ -62,156 +53,15 @@ def load_machine_products(file_path, machine):
         st.error(f"Error loading products for {machine}: {str(e)}")
         return ['All Products']
 
-@st.cache_data
-def calculate_data_statistics_cached(df):
-    """Calculate data statistics with caching for better performance."""
-    if df.empty:
-        return None
-    
-    # Calculate statistics
-    first_date = df['Date'].min()
-    last_date = df['Date'].max()
-    date_range_days = (last_date - first_date).days + 1
-    total_picks = len(df)
-    avg_picks_per_day = total_picks / date_range_days
-    
-    # Find the day with the most picks
-    daily_counts = df.groupby('Date').size()
-    largest_day = daily_counts.idxmax()
-    largest_day_picks = daily_counts.max()
-    
-    return {
-        'date_range_days': date_range_days,
-        'total_picks': total_picks,
-        'avg_picks_per_day': avg_picks_per_day,
-        'largest_day': largest_day,
-        'largest_day_picks': largest_day_picks
-    }
-
-def calculate_data_statistics(df):
-    """Calculate and display data statistics for CSV data."""
-    if df.empty:
-        return
-    
-    # Get cached statistics
-    stats = calculate_data_statistics_cached(df)
-    if stats is None:
-        return
-    
-    # Display statistics in a compact, elegant format
-    st.markdown("### 📊 Data Gathering Statistics")
-    
-    # Create a more visually appealing layout
-    col1, col2, col3, col4 = st.columns(4)
-    
-    with col1:
-        st.metric(
-            label="📈 Monitoring Days",
-            value=f"{stats['date_range_days']:,}",
-            help="Number of days manually monitored"
-        )
-    
-    with col2:
-        st.metric(
-            label="🎯 Total Picks Recorded",
-            value=f"{stats['total_picks']:,}",
-            help="Total number of picks manually recorded"
-        )
-    
-    with col3:
-        st.metric(
-            label="📊 Avg/Day",
-            value=f"{stats['avg_picks_per_day']:.0f}",
-            help="Average picks recorded per day"
-        )
-    
-    with col4:
-        st.metric(
-            label="🔥 Busiest Day",
-            value=f"{stats['largest_day_picks']:,}",
-            help=f"Most picks recorded in a single day ({stats['largest_day'].strftime('%d/%m/%Y')})"
-        )
-        st.caption(f"on {stats['largest_day'].strftime('%d/%m/%Y')}")
-    
-    st.markdown("---")
-
-@st.cache_data
-def load_machine_data_cached(machine):
-    """Load data for a specific machine from the Excel file or CSV with caching."""
+def load_machine_data(machine):
+    """Load data for a specific machine from the Excel file."""
     try:
-        if machine == "LWS #010":
-            # Check if file exists
-            import os
-            csv_file = "PikPak Pick Accuracy(LWS #010).csv"
-            if not os.path.exists(csv_file):
-                st.warning("CSV file not available in cloud environment. Using sample data for demonstration.")
-                sample_data = create_sample_lws_data()
-                return sample_data
-            
-            # Try reading with different parameters
-            try:
-                df = pd.read_csv(csv_file, encoding='utf-8', low_memory=False)
-            except Exception as e1:
-                try:
-                    df = pd.read_csv(csv_file, low_memory=False)
-                except Exception as e2:
-                    st.error(f"Failed to read CSV file: {e2}")
-                    return pd.DataFrame()
-            
-            # Check if Date column exists
-            if 'Date' not in df.columns:
-                st.error(f"Date column not found in CSV for {machine}. Available columns: {list(df.columns)}")
-                return pd.DataFrame()
-            
-            # Optimize date parsing with explicit format (DD/MM/YY)
-            df['Date'] = pd.to_datetime(df['Date'], format='%d/%m/%y', errors='coerce')
-            
-            # If parsing failed, try alternative formats
-            if df['Date'].isna().any():
-                df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
-            
-            # Remove rows with invalid dates
-            df = df.dropna(subset=['Date'])
-            
-        else:
-            df = pd.read_excel("PikPak Pick Accuracy.xlsx", sheet_name=machine)
-            df['Date'] = pd.to_datetime(df['Date'])
+        df = pd.read_excel("PikPak Pick Accuracy.xlsx", sheet_name=machine)
+        df['Date'] = pd.to_datetime(df['Date'])
         return df
     except Exception as e:
         st.error(f"Error loading data for {machine}: {e}")
         return pd.DataFrame()
-
-def create_sample_lws_data():
-    """Create sample data for LWS #010 when CSV is not available."""
-    import numpy as np
-    from datetime import datetime, timedelta
-    
-    # Create sample dates (last 30 days)
-    end_date = datetime.now()
-    start_date = end_date - timedelta(days=30)
-    dates = pd.date_range(start=start_date, end=end_date, freq='D')
-    
-    # Create sample data with more realistic volume (closer to real data)
-    data = []
-    for date in dates:
-        # Generate 2000-3000 picks per day (more realistic for industrial scale)
-        num_picks = np.random.randint(2000, 3000)
-        for i in range(num_picks):
-            # 95% good picks, 5% bad picks
-            status = np.random.choice(['Good', 'Bad'], p=[0.95, 0.05])
-            data.append({
-                'Date': date,
-                'Time': f"{np.random.randint(8, 18):02d}:{np.random.randint(0, 60):02d}:{np.random.randint(0, 60):02d}",
-                'Index': i,
-                'Status': status,
-                'Product': 'Sample Product',
-                'Operator': 'Sample Operator',
-                'Comments': ''
-            })
-    
-    df = pd.DataFrame(data)
-    df['Date'] = pd.to_datetime(df['Date'])
-    return df
 
 def load_shift_pattern():
     """Load shift pattern data from the Excel file."""
@@ -230,52 +80,14 @@ def filter_data_by_product(df, product):
         return df
     return df[df['Product'] == product]
 
-@st.cache_data
-def load_events_cached():
+def load_events():
     try:
-        # Read the Events sheet with hyperlink handling
         df = pd.read_excel(file_path, sheet_name='Events', parse_dates=['Date'])
         df['Date'] = pd.to_datetime(df['Date']).dt.normalize()
-        
-        # Add Time column if it doesn't exist
-        if 'Time' not in df.columns:
-            # Use the same dataframe we already loaded
-            original_dates = pd.to_datetime(df['Date'])
-            
-            # Extract time if available, otherwise set default
-            if original_dates.dt.time.notna().any():
-                df['Time'] = original_dates.dt.time
-            else:
-                df['Time'] = '00:00:00'
-        
-        # Handle hyperlinks from Excel
-        if 'URL' not in df.columns:
-            df['URL'] = ''
-        
-        # Clean up URL column - remove any NaN values and handle Excel hyperlink format
-        df['URL'] = df['URL'].fillna('')
-        
-        # Convert Excel hyperlink format if needed (Excel sometimes stores as HYPERLINK formula)
-        for idx, url in enumerate(df['URL']):
-            if isinstance(url, str) and url.startswith('=HYPERLINK('):
-                # Extract URL from Excel HYPERLINK formula
-                try:
-                    # Extract URL from HYPERLINK("url","text") format
-                    url_start = url.find('"') + 1
-                    url_end = url.find('"', url_start)
-                    if url_end > url_start:
-                        df.at[idx, 'URL'] = url[url_start:url_end]
-                except:
-                    df.at[idx, 'URL'] = ''
-        
         return df
     except Exception as e:
         st.warning(f"Error loading events: {e}")
-        return pd.DataFrame(columns=['Date', 'Time', 'Machine', 'Description', 'URL', 'Recalculate Mean (Yes/No)'])
-
-def load_events():
-    """Load events data from the Excel file."""
-    return load_events_cached()
+        return pd.DataFrame(columns=['Date', 'Machine', 'Description', 'Recalculate Mean (Yes/No)'])
 
 def calculate_control_limits(segment_data, usl=None, lsl=None):
     total_picks_sum = segment_data['Total Picks'].sum()
@@ -284,7 +96,7 @@ def calculate_control_limits(segment_data, usl=None, lsl=None):
         
     p_bar = segment_data['Bad Picks'].sum() / total_picks_sum
     centerline = p_bar * 100
-    mu = centerline  # Use centerline instead of mean of Bad %
+    mu = segment_data['Bad %'].mean()
     sigma = segment_data['Bad %'].std(ddof=1)
     cpk = None
     if usl is not None and lsl is not None and sigma > 0:
@@ -375,7 +187,7 @@ def detect_violations(segment_data, centerline, ucl, lcl):
 
     return violations
 
-def plot_chart(data, events, machine, product, chart_type, usl, lsl, detect_rules, show_events, user_recalc_dates, include_event_recalcs, show_shift_pattern, exclude_low_data_days):
+def plot_chart(data, events, machine, product, chart_type, usl, lsl, detect_rules, show_events, user_recalc_dates, include_event_recalcs, show_shift_pattern):
     """Plot the control chart with the given data and settings."""
     if data.empty:
         st.warning("No data available for the selected criteria.")
@@ -390,7 +202,7 @@ def plot_chart(data, events, machine, product, chart_type, usl, lsl, detect_rule
     # Calculate daily summary (needed for both shift pattern and data points)
     # Create a temporary column for counting
     data['_count'] = 1
-    # Calculate daily summary with Bad % calculation - optimize with groupby
+    # Calculate daily summary with Bad % calculation
     daily_summary = data.groupby('Date').agg({
         'Status': lambda x: (x == 'Bad').sum(),
         '_count': 'sum'
@@ -400,17 +212,6 @@ def plot_chart(data, events, machine, product, chart_type, usl, lsl, detect_rule
     daily_summary = daily_summary[daily_summary['Total Picks'] >= min_samples]
     daily_summary = daily_summary.sort_values('Date')
     data = data.drop('_count', axis=1)
-
-    # Filter out low data days if enabled
-    if exclude_low_data_days and not daily_summary.empty:
-        avg_daily_count = daily_summary['Total Picks'].mean()
-        threshold = avg_daily_count * 0.3  # 30% of average
-        original_count = len(daily_summary)
-        daily_summary = daily_summary[daily_summary['Total Picks'] >= threshold]
-        filtered_count = len(daily_summary)
-        
-        if original_count != filtered_count:
-            st.info(f"Filtered out {original_count - filtered_count} days with insufficient data (less than {threshold:.1f} picks per day)")
 
     # Add shift pattern overlay if enabled and machine is LWS #010
     if show_shift_pattern and machine == "LWS #010":
@@ -688,76 +489,29 @@ def plot_chart(data, events, machine, product, chart_type, usl, lsl, detect_rule
 
     # Add Cpk to the legend if available
     if segments and segments[-1]['cpk'] is not None:
-        cpk_value = segments[-1]['cpk']
-        cpk_text = f"Cpk = {cpk_value:.2f}"
-        
-        # Determine color based on Cpk value
-        if cpk_value > 1.67:
-            cpk_color = "green"
-        elif cpk_value > 1.33:
-            cpk_color = "yellow"
-        elif cpk_value > 1.0:
-            cpk_color = "orange"
-        else:
-            cpk_color = "red"
-        
         fig.add_trace(go.Scatter(
             x=[None],
             y=[None],
             mode='markers',
-            marker=dict(
-                size=15,
-                color=cpk_color,
-                symbol='diamond',
-                line=dict(width=2, color='black')
-            ),
-            name=cpk_text,
+            marker=dict(size=0),
+            name=f"Cpk = {segments[-1]['cpk']:.2f}",
             showlegend=True
         ))
 
     # Add events if enabled
     if show_events and not events.empty:
-        # More flexible machine matching (handle spaces, case differences)
-        machine_events = events.copy()
-        
-        # Try exact match first
-        exact_matches = machine_events[machine_events['Machine'] == machine]
-        
-        # If no exact matches, try case-insensitive and space-insensitive matching
-        if len(exact_matches) == 0:
-            # Remove spaces and convert to lowercase for comparison
-            machine_events['Machine_clean'] = machine_events['Machine'].str.replace(' ', '').str.lower()
-            machine_clean = machine.replace(' ', '').lower()
-            machine_events = machine_events[machine_events['Machine_clean'] == machine_clean]
-            machine_events = machine_events.drop('Machine_clean', axis=1)
-        else:
-            machine_events = exact_matches
-        
+        machine_events = events[events['Machine'] == machine].copy()
         min_data_date = daily_summary['Date'].min()
         max_data_date = daily_summary['Date'].max()
         machine_events = machine_events[(machine_events['Date'] >= min_data_date) & (machine_events['Date'] <= max_data_date)].copy()
 
-        # Add legend for event colors only when events are enabled
-        if not machine_events.empty:
-            st.markdown("**📅 Event Annotations:**")
-            st.markdown("- 🟠 **Orange**: Events with additional information (clickable in table below)")
-            st.markdown("- 🔴 **Red**: Informational events only")
-            st.markdown("")
-
         for index, event in machine_events.iterrows():
             event_date = event['Date']
             description = event['Description']
-            url = event.get('URL', '')
 
             # Find the closest date in daily_summary
             closest_date_index = daily_summary['Date'].sub(event_date).abs().idxmin()
             closest_date_data = daily_summary.loc[closest_date_index]
-
-            # Set color based on whether URL exists
-            if url and url != '':
-                bg_color = "#ff8c00"  # Orange for events with URLs
-            else:
-                bg_color = "#ff0000"  # Red for events without URLs
 
             # Add annotation
             fig.add_annotation(
@@ -768,7 +522,7 @@ def plot_chart(data, events, machine, product, chart_type, usl, lsl, detect_rule
                 arrowhead=2,
                 ax=0,  # Horizontal offset of arrow
                 ay=-120,  # Double the vertical offset
-                bgcolor=bg_color,  # Use conditional color
+                bgcolor="#ff0000",  # Strong red
                 bordercolor="black",
                 borderwidth=1,
                 borderpad=4,  # Back to 4 pixels padding
@@ -799,18 +553,18 @@ def plot_chart(data, events, machine, product, chart_type, usl, lsl, detect_rule
             tickangle=45,
             tickformat="%d-%m-%Y",
             type='date',
-            # Force weekly tick generation
+            # Force Monday-based ticks
             tickmode='array',
-            # Generate weekly ticks explicitly
+            # Generate ticks for every Monday in the date range
             ticktext=[d.strftime("%d-%m-%Y") for d in pd.date_range(
                 start=daily_summary['Date'].min(),
                 end=daily_summary['Date'].max(),
-                freq='W-MON'  # Weekly on Mondays
+                freq='W-MON'
             )],
             tickvals=pd.date_range(
                 start=daily_summary['Date'].min(),
                 end=daily_summary['Date'].max(),
-                freq='W-MON'  # Weekly on Mondays
+                freq='W-MON'
             ),
             showgrid=True,
             gridcolor='lightgray',
@@ -836,18 +590,18 @@ def plot_chart(data, events, machine, product, chart_type, usl, lsl, detect_rule
         # Force x-axis to show dates after adding shift pattern
         fig.update_xaxes(
             type='date',
-            # Force weekly tick generation
+            # Force Monday-based ticks
             tickmode='array',
-            # Generate weekly ticks explicitly
+            # Generate ticks for every Monday in the date range
             ticktext=[d.strftime("%d-%m-%Y") for d in pd.date_range(
                 start=daily_summary['Date'].min(),
                 end=daily_summary['Date'].max(),
-                freq='W-MON'  # Weekly on Mondays
+                freq='W-MON'
             )],
             tickvals=pd.date_range(
                 start=daily_summary['Date'].min(),
                 end=daily_summary['Date'].max(),
-                freq='W-MON'  # Weekly on Mondays
+                freq='W-MON'
             ),
             range=[daily_summary['Date'].min(), daily_summary['Date'].max()]
         )
@@ -856,170 +610,78 @@ def plot_chart(data, events, machine, product, chart_type, usl, lsl, detect_rule
     st.plotly_chart(
         fig,
         use_container_width=True,
-        config={'displayModeBar': True},
-        height=600
+        config={'displayModeBar': True, 'displaylogo': False}
     )
 
-    # After displaying the chart, show events table if enabled
-    if show_events and not events.empty:
-        # Use the same flexible machine matching as in the chart annotations
-        machine_events = events.copy()
-        
-        # Try exact match first
-        exact_matches = machine_events[machine_events['Machine'] == machine]
-        
-        # If no exact matches, try case-insensitive and space-insensitive matching
-        if len(exact_matches) == 0:
-            # Remove spaces and convert to lowercase for comparison
-            machine_events['Machine_clean'] = machine_events['Machine'].str.replace(' ', '').str.lower()
-            machine_clean = machine.replace(' ', '').lower()
-            machine_events = machine_events[machine_events['Machine_clean'] == machine_clean]
-            machine_events = machine_events.drop('Machine_clean', axis=1)
-        else:
-            machine_events = exact_matches
-            
-        if not df.empty and 'Date' in df.columns:
-            min_data_date = df['Date'].min()
-            max_data_date = df['Date'].max()
+    # After displaying the chart, show event links if available and Show Events is enabled
+    if submitted_show_events and not events.empty and 'URL' in events.columns:
+        machine_events = events[events['Machine'] == machine].copy()
+        if not data.empty and 'Date' in data.columns:
+            min_data_date = data['Date'].min()
+            max_data_date = data['Date'].max()
             machine_events = machine_events[(machine_events['Date'] >= min_data_date) & (machine_events['Date'] <= max_data_date)].copy()
-        
+
+        # Filter to rows that contain a URL for linking
+        if 'URL' in machine_events.columns:
+            machine_events = machine_events[machine_events['URL'].notnull() & (machine_events['URL'] != '')]
+
         if not machine_events.empty:
-            st.markdown('### Events Table')
-            
-            # Create a DataFrame for display with proper formatting
-            display_data = []
-            for _, row in machine_events.iterrows():
-                # Format date
-                date_str = row['Date'].strftime('%d/%m/%y')
-                
-                # Create issue description with hyperlink if URL exists
-                issue_desc = row['Description']
-                url = row.get('URL', '')
-                
-                if url and url != '':
-                    # Create HTML hyperlink for the dataframe
-                    issue_desc = f'<a href="{url}" target="_blank">{row["Description"]}</a>'
-                
-                display_data.append({
-                    'Date': date_str,
-                    'Issue': issue_desc
-                })
-            
-            # Create DataFrame for display
-            events_df = pd.DataFrame(display_data)
-            
-            # Display the table using Streamlit's native dataframe with HTML
-            # Add CSS for clean, minimal styling
-            css = """
-            <style>
-            .events-table {
-                width: 100%;
-                margin: 10px 0;
-                font-family: -apple-system, BlinkMacSystemFont, sans-serif;
-                border: none;
-                background-color: transparent;
-            }
-            .events-table th {
-                text-align: left;
-                padding: 8px 0;
-                font-weight: bold;
-                color: white;
-                border: none;
-                background-color: transparent;
-            }
-            .events-table td {
-                text-align: left;
-                padding: 8px 0;
-                border: none;
-                background-color: transparent;
-                color: white;
-            }
-            .events-table a {
-                color: #0066cc;
-                text-decoration: none;
-            }
-            .events-table a:hover {
-                text-decoration: underline;
-            }
-            </style>
-            """
-            
-            # Create HTML table manually for better control
-            html_table = css + "<table class='events-table'>"
-            html_table += "<thead><tr><th>Date</th><th>Issue</th></tr></thead>"
-            html_table += "<tbody>"
-            
-            for _, row in events_df.iterrows():
-                html_table += f"<tr><td>{row['Date']}</td><td>{row['Issue']}</td></tr>"
-            
-            html_table += "</tbody></table>"
-            
-            st.write(html_table, unsafe_allow_html=True)
-            
-            # Add note about event colors and clickable links
-            if not events_df.empty:
-                st.markdown("")
-                st.markdown("**💡 Tip:** Orange events in the chart above have clickable links in this table. Click on the blue text to access additional information.")
-        else:
-            st.info("No events found for the selected machine and date range.")
-    elif show_events:
-        st.info("No events data available. Please ensure the Events sheet exists in the Excel file.")
+            # Sort events by date and time if available
+            sort_cols = ['Date'] + (['Time'] if 'Time' in machine_events.columns else [])
+            machine_events = machine_events.sort_values(sort_cols)
+
+            # Prepare table columns
+            date_col = machine_events['Date'].dt.strftime('%d-%m-%Y')
+            if 'Time' in machine_events.columns:
+                time_col = machine_events['Time'].astype(str)
+            else:
+                time_col = ''
+            link_col = machine_events.apply(
+                lambda r: f"<a href='{r['URL']}'>{r['Description']}</a>" if 'URL' in r and pd.notna(r['URL']) else r['Description'],
+                axis=1
+            )
+
+            table_df = pd.DataFrame({'Date': date_col, 'Time': time_col, 'Issue': link_col})
+
+            st.markdown('### Event Details')
+            st.write(table_df.to_html(escape=False, index=False), unsafe_allow_html=True)
 
 # --- STREAMLIT APP ---
 
-st.title("PikPak Statistical Process Control (SPC) Dashboard")
-
 with st.expander("ℹ️ Help: Statistical Process Charts", expanded=False):
     st.markdown("""
-    ## **Statistical Process Control (SPC) Dashboard Guide**
-    
-    ### **Detection Rules** 🔍
-    Enable **Detection Rules** to highlight key statistical signals in your process:
-    
-    - **Outside Limits** ⚠️: One point beyond the upper or lower control limits
-    - **Zone Shift** 📈: 8 or more consecutive points on one side of the centerline
-    - **Trend** 📊: 6 or more points trending upward or downward
-    - **Alternating** 🔄: 14 or more points alternating up and down
-    
-    ### **Specification Limits** 📏
-    - **USL (Upper Specification Limit)**: Maximum acceptable value for % Bad
-    - **LSL (Lower Specification Limit)**: Minimum acceptable value for % Bad
-    - These limits define your process requirements and are used to calculate **Cpk**
-    
-    ### **Process Capability (Cpk) Guide** 📊
-    - **Cpk > 1.67**: 🟢 Excellent process capability
-    - **1.33 < Cpk ≤ 1.67**: 🟡 Good process capability  
-    - **1.0 < Cpk ≤ 1.33**: 🟠 Marginal process capability
-    - **Cpk ≤ 1.0**: 🔴 Process needs improvement
-    
-    ### **Events and Recalculation Points** 📅
-    - **Events**: Significant occurrences that may affect process performance
-    - **Event Annotations**: Red markers on the chart when "Show Events" is enabled
-    - **Recalculation Points**: Trigger new control limit calculations
-    - **Manual Recalculation**: Add dates using the date picker
-    - **Event Recalculations**: Automatically include events marked "Yes" for recalculation
-    
-    ### **Data Quality Features** 🎯
-    - **Exclude Low Data Days**: Remove days with insufficient data (< 30% of average)
-    - **Product Filtering**: Focus on specific products or view all products
-    - **Machine Selection**: Analyze specific machines (EVG #006, EVG #007, LWS #010)
-    
-    ### **Chart Features** 📈
-    - **Control Limits**: UCL (Upper), LCL (Lower), and Centerline
-    - **Shift Pattern Overlay**: For LWS #010, shows A/B shift cycles
-    - **Interactive Plot**: Zoom, pan, and hover for detailed information
-    - **Export Ready**: Charts can be saved as images
-    
-    ### **Best Practices** 💡
-    1. **Start with "All Products"** to see overall process performance
-    2. **Enable Detection Rules** to identify process issues
-    3. **Use Events** to correlate process changes with performance
-    4. **Exclude Low Data Days** for more accurate analysis
-    5. **Set appropriate USL/LSL** based on customer requirements
+    Enable **Detection Rules** in the sidebar to highlight these key statistical signals in your process:
+
+    - **Outside Limits**: One point beyond the upper or lower control limits.
+    - **Zone Shift**: 8 or more consecutive points on one side of the centerline.
+    - **Trend**: 6 or more points trending upward or downward.
+    - **Alternating**: 14 or more points alternating up and down.
+
+    **Specification Limits:**
+    - USL (Upper Specification Limit): The maximum acceptable value for % Bad
+    - LSL (Lower Specification Limit): The minimum acceptable value for % Bad
+    - These limits define the acceptable range for your process
+    - They are used to calculate Cpk, which measures how well your process fits within these limits
+
+    **Cpk (Process Capability) Guide:**
+    - Cpk > 1.67: Excellent process
+    - 1.33 < Cpk ≤ 1.67: Good process
+    - 1.0 < Cpk ≤ 1.33: Marginal process
+    - Cpk ≤ 1.0: Process needs improvement
+
+    Higher Cpk values indicate better process performance and less risk of producing out-of-specification results.
+
+    **Events and Recalculation Points:**
+    - Events are significant occurrences that may affect process performance
+    - They are displayed as red annotations on the chart when "Show Events" is enabled
+    - Events can be marked for recalculation (Yes/No in Events sheet)
+    - When "Include Event Recalculations" is enabled, these events will trigger new control limit calculations
+    - You can also manually add recalculation points using the date picker
+    - Recalculation points help identify when process behavior changes significantly
+    - Each segment between recalculation points has its own control limits
     """)
 
-# Add separator line after the main title
-st.markdown("---")
+st.title("PikPak Statistical Process Control (SPC) Dashboard")
 
 with st.sidebar:
     # Add custom CSS for green button
@@ -1052,28 +714,21 @@ with st.sidebar:
         submitted = st.form_submit_button("Show Chart", type='primary')
 
         # Checkboxes (kept inside form as they affect plot on submit)
-        detect_rules = st.checkbox("Enable Detection Rules", key="form_detect_rules", 
-                                 help="Highlight statistical process control violations: Outside Limits (points beyond UCL/LCL), Zone Shift (8+ consecutive points on one side), Trend (6+ points trending up/down), Alternating (14+ points alternating)")
-        show_events = st.checkbox("Show Events", key="form_show_events", 
-                                help="Display significant events from the Excel Events sheet as annotations on the chart and in a table below. Events can include maintenance, operator changes, or process modifications.")
-        include_event_recalcs = st.checkbox("Include Event Recalculations", value=False, 
-                                          help="Automatically include dates from the Events sheet marked 'Yes' for recalculation. This creates new control limit segments when significant events occur, improving chart accuracy.")
-        exclude_low_data_days = st.checkbox("Exclude Low Data Days", value=False, 
-                                          help="Remove days with insufficient data points (less than 30% of average daily count). This improves control chart accuracy by eliminating days that could skew the analysis.")
+        detect_rules = st.checkbox("Enable Detection Rules", key="form_detect_rules")
+        show_events = st.checkbox("Show Events", key="form_show_events")
+        include_event_recalcs = st.checkbox("Include Event Recalculations", value=False, help="Include dates from the Events sheet marked for recalculation.", key="form_include_event_recalcs")
 
         # Add the shift pattern checkbox here, inside the form, but conditionally displayed
         show_shift_pattern_dynamic = False
         if st.session_state.get('form_machine_select') == "LWS #010":
-             show_shift_pattern_dynamic = st.checkbox("Overlay Shift Pattern", 
-                                                   help="Display shift pattern overlay (A/B shifts) for LWS #010. Shows 8-day cycle starting from January 1st, 2025 with 4 days per shift.", 
-                                                   key="shift_pattern_checkbox")
+             show_shift_pattern_dynamic = st.checkbox("Overlay Shift Pattern", help="Show shift pattern overlay for LWS 010", key="shift_pattern_checkbox")
 
         # Recalculation date input (kept inside form)
         recalc_date_input = st.date_input(
             "Select Recalculation Date",
             value=None,
             format="DD-MM-YYYY",
-            help="Add a specific date as a recalculation point. Control limits will be recalculated from this date forward, creating a new segment. Useful for process changes, maintenance, or significant events.",
+            help="Select a date to add as a recalculation point for control limits.",
             key="form_recalc_date_input"
         )
 
@@ -1097,12 +752,8 @@ with st.sidebar:
         # Add specification limits at the bottom of the form
         st.markdown("---")  # Add a separator line
         st.markdown("### Specification Limits")
-        usl = st.number_input("USL (% Bad)", value=2.0, step=0.5, 
-                             help="Upper Specification Limit: Maximum acceptable percentage of bad picks. Values above this indicate the process is not meeting customer requirements.", 
-                             key="form_usl")
-        lsl = st.number_input("LSL (% Bad)", value=0.0, step=0.5, 
-                             help="Lower Specification Limit: Minimum acceptable percentage of bad picks. Used with USL to calculate process capability (Cpk).", 
-                             key="form_lsl")
+        usl = st.number_input("USL (% Bad)", value=2.0, step=0.5, key="form_usl")
+        lsl = st.number_input("LSL (% Bad)", value=0.0, step=0.5, key="form_lsl")
 
         # Update session state with selected machine when form is submitted
         if submitted:
@@ -1112,129 +763,65 @@ with st.sidebar:
             st.session_state['submitted_detect_rules'] = detect_rules
             st.session_state['submitted_show_events'] = show_events
             st.session_state['submitted_include_event_recalcs'] = include_event_recalcs
-            st.session_state['submitted_exclude_low_data_days'] = exclude_low_data_days
             st.session_state['submitted_usl'] = usl
             st.session_state['submitted_lsl'] = lsl
             st.session_state['submitted_show_shift_pattern'] = st.session_state.get('shift_pattern_checkbox', False)
-            
-            # Transfer date range values from temporary to submitted state
-            st.session_state['submitted_enable_date_filter'] = st.session_state.get('temp_enable_date_filter', False)
-            st.session_state['submitted_start_date'] = st.session_state.get('temp_start_date')
-            st.session_state['submitted_end_date'] = st.session_state.get('temp_end_date')
-            
             # Only update recalc_dates when Show Chart is clicked
             if 'temp_recalc_dates' in st.session_state:
                 st.session_state.recalc_dates = st.session_state.temp_recalc_dates.copy()
                 st.session_state.temp_recalc_dates = []  # Clear temporary list after applying
 
-    # Date range selection (moved outside form for immediate response)
-    st.sidebar.markdown("### Date Range Filter")
-    enable_date_filter = st.sidebar.checkbox(
-        "Enable Date Range Filter", 
-        value=st.session_state.get('submitted_enable_date_filter', False),
-        help="Check this box to filter data by date range. Leave unchecked to show all data.",
-        key="enable_date_filter"
-    )
-    
-    if enable_date_filter:
-        col1, col2 = st.sidebar.columns(2)
-        with col1:
-            start_date = st.sidebar.date_input(
-                "Start Date",
-                value=st.session_state.get('submitted_start_date'),
-                format="DD/MM/YYYY",
-                help="Select the start date for data filtering. Leave empty to include all data from the beginning.",
-                key="start_date"
-            )
-        with col2:
-            end_date = st.sidebar.date_input(
-                "End Date", 
-                value=st.session_state.get('submitted_end_date'),
-                format="DD/MM/YYYY",
-                help="Select the end date for data filtering. Leave empty to include all data to the end.",
-                key="end_date"
-            )
-    else:
-        start_date = None
-        end_date = None
+    # Display both Pending and Active recalculation dates in the sidebar
+    # Pending: temp_recalc_dates (to be applied on next Show Chart)
+    # Active: recalc_dates (currently applied to the chart)
+    if 'temp_recalc_dates' in st.session_state and st.session_state.temp_recalc_dates:
+        st.sidebar.write("Pending Recalculation Points:")
+        for date in st.session_state.temp_recalc_dates:
+            col1, col2 = st.sidebar.columns([3, 1])
+            with col1:
+                st.write(date.strftime("%d-%m-%Y"))
+            with col2:
+                if st.button("❌", key=f"remove_pending_{date.strftime('%Y%m%d')}"):
+                    st.session_state.temp_recalc_dates.remove(date)
+                    # Do NOT call st.rerun() here; only update chart on 'Show Chart'
 
-    # Store date range values in session state (but don't apply until form submission)
-    st.session_state['temp_enable_date_filter'] = enable_date_filter
-    st.session_state['temp_start_date'] = start_date
-    st.session_state['temp_end_date'] = end_date
+    if 'recalc_dates' in st.session_state and st.session_state.recalc_dates:
+        st.sidebar.write("Active Recalculation Points:")
+        for date in st.session_state.recalc_dates:
+            col1, col2 = st.sidebar.columns([3, 1])
+            with col1:
+                st.write(date.strftime("%d-%m-%Y"))
+            with col2:
+                if st.button("❌", key=f"remove_active_{date.strftime('%Y%m%d')}"):
+                    st.session_state.recalc_dates.remove(date)
+                    st.rerun()
 
 # --- Data Loading and Filtering ---
 # Use submitted values from session state for data loading and plotting
 submitted_machine = st.session_state.get('submitted_machine')
 submitted_product = st.session_state.get('submitted_product')
-submitted_exclude_low_data_days = st.session_state.get('submitted_exclude_low_data_days', False)
-
-# Get date range values from session state (only applied on form submission)
-submitted_enable_date_filter = st.session_state.get('submitted_enable_date_filter', False)
-submitted_start_date = st.session_state.get('submitted_start_date')
-submitted_end_date = st.session_state.get('submitted_end_date')
 
 df = pd.DataFrame() # Initialize empty DataFrame
 
 # Only load data if the form has been submitted at least once with valid machine/product
 if submitted_machine and submitted_product:
     try:
-        df = load_machine_data_cached(submitted_machine)
+        df = load_machine_data(submitted_machine)
         df = filter_data_by_product(df, submitted_product)
-
-        # Apply date range filtering if enabled and dates are selected (only on form submission)
-        if submitted_enable_date_filter:
-            if submitted_start_date is not None:
-                df = df[df['Date'] >= pd.to_datetime(submitted_start_date)]
-            if submitted_end_date is not None:
-                df = df[df['Date'] <= pd.to_datetime(submitted_end_date)]
-
-            # Show date range info if dates are selected
-            if submitted_start_date is not None or submitted_end_date is not None:
-                start_str = submitted_start_date.strftime("%d-%m-%Y") if submitted_start_date else "Beginning"
-                end_str = submitted_end_date.strftime("%d-%m-%Y") if submitted_end_date else "End"
-                st.info(f"📅 **Date Range Applied:** {start_str} to {end_str}")
-
-        # If CSV data is loaded, calculate and display statistics
-        if submitted_machine == "LWS #010":
-            calculate_data_statistics(df)
 
     except Exception as e:
         st.error(f"Error loading or filtering data after form submission: {e}")
         df = pd.DataFrame() # Ensure df is empty on error
 
-# Display recalculation points in the sidebar
-if 'temp_recalc_dates' in st.session_state and st.session_state.temp_recalc_dates:
-    st.sidebar.write("Pending Recalculation Points:")
-    for date in st.session_state.temp_recalc_dates:
-        col1, col2 = st.sidebar.columns([3, 1])
-        with col1:
-            st.sidebar.write(date.strftime("%d-%m-%Y"))
-        with col2:
-            if st.sidebar.button("❌", key=f"remove_pending_{date.strftime('%Y%m%d')}"):
-                st.session_state.temp_recalc_dates.remove(date)
-
-if 'recalc_dates' in st.session_state and st.session_state.recalc_dates:
-    st.sidebar.write("Active Recalculation Points:")
-    for date in st.session_state.recalc_dates:
-        col1, col2 = st.sidebar.columns([3, 1])
-        with col1:
-            st.sidebar.write(date.strftime("%d-%m-%Y"))
-        with col2:
-            if st.sidebar.button("❌", key=f"remove_active_{date.strftime('%Y%m%d')}"):
-                st.session_state.recalc_dates.remove(date)
-                st.rerun()
-
 # --- Chart Generation and Display ---
 # Only generate and display chart if data is loaded and available (i.e., form submitted and data found)
 if not df.empty:
     try:
-        events = load_events_cached()
+        events = load_events()
         # Use submitted values from session state for plotting
         submitted_detect_rules = st.session_state.get('submitted_detect_rules', False)
         submitted_show_events = st.session_state.get('submitted_show_events', False)
         submitted_include_event_recalcs = st.session_state.get('submitted_include_event_recalcs', False)
-        submitted_exclude_low_data_days = st.session_state.get('submitted_exclude_low_data_days', False)
         submitted_usl = st.session_state.get('submitted_usl', 2.0)
         submitted_lsl = st.session_state.get('submitted_lsl', 0.0)
         # Use the submitted shift pattern checkbox state
@@ -1255,8 +842,7 @@ if not df.empty:
             submitted_show_events,
             user_recalc_dates, # Use the dynamically updated recalc dates
             submitted_include_event_recalcs,
-            submitted_show_shift_pattern, # Pass the submitted shift pattern state
-            submitted_exclude_low_data_days # Pass the submitted exclude_low_data_days state
+            submitted_show_shift_pattern # Pass the submitted shift pattern state
         )
 
     except Exception as e:
