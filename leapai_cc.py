@@ -304,15 +304,49 @@ def plot_chart(data, events, machine, product, chart_type, usl, lsl, detect_rule
                     showlegend=True
                 ))
 
-    # Add data points
-    fig.add_trace(go.Scatter(
-        x=daily_summary['Date'],
-        y=daily_summary['Bad %'],
-        mode='lines+markers',
-        name='% Bad',
-        line=dict(color='blue', width=2),
-        marker=dict(size=8, color='blue')
-    ))
+    # Add data points with simple gap detection
+    if len(daily_summary) > 1:
+        # Sort by date to ensure proper order
+        daily_summary_sorted = daily_summary.sort_values('Date').reset_index(drop=True)
+        
+        # Calculate gaps between consecutive dates
+        date_diffs = daily_summary_sorted['Date'].diff().dt.days
+        gap_threshold = 7  # Days - adjust this value as needed
+        
+        # Find where gaps occur
+        gap_indices = date_diffs > gap_threshold
+        
+        # Create separate traces for each continuous segment
+        start_idx = 0
+        
+        for i, is_gap in enumerate(gap_indices):
+            if is_gap or i == len(daily_summary_sorted) - 1:
+                # End of a segment
+                end_idx = i if is_gap else len(daily_summary_sorted)
+                
+                if end_idx > start_idx:  # Only create trace if there's data
+                    segment_data = daily_summary_sorted.iloc[start_idx:end_idx]
+                    
+                    fig.add_trace(go.Scatter(
+                        x=segment_data['Date'],
+                        y=segment_data['Bad %'],
+                        mode='lines+markers',
+                        name='% Bad',
+                        line=dict(color='blue', width=2),
+                        marker=dict(size=8, color='blue'),
+                        showlegend=True if start_idx == 0 else False  # Only show legend for first segment
+                    ))
+                
+                start_idx = i + 1 if is_gap else end_idx
+    else:
+        # Single data point - just show markers
+        fig.add_trace(go.Scatter(
+            x=daily_summary['Date'],
+            y=daily_summary['Bad %'],
+            mode='markers',
+            name='% Bad',
+            marker=dict(size=8, color='blue')
+        ))
 
     # Always include user-selected recalculation dates
     user_recalc_dates_dt = [pd.to_datetime(d) for d in user_recalc_dates if d is not None]
